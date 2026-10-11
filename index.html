@@ -1,0 +1,1108 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Uno am Tisch</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;600;800&family=Lilita+One&display=swap">
+<style>
+:root{
+  /* Layout: ein Bildschirm. Gegner oben, Filz mit Stapeln in der Mitte, eigene Hand unten. */
+  --table:#241f3a;
+  --table-hi:#322b52;
+  --paper:#fbf9f4;
+  --ink:#16131f;
+  --mute:#bdb7d9;
+  --red:#e3342b;
+  --yellow:#f5b50a;
+  --green:#2f9e57;
+  --blue:#1d6fd6;
+  --display:'Lilita One','Arial Rounded MT Bold','Trebuchet MS',system-ui,sans-serif;
+  --body:'Figtree',system-ui,-apple-system,'Segoe UI',sans-serif;
+  color-scheme:dark;
+  padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px);
+}
+[hidden]{display:none!important}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--table);color:#fff;font:400 16px/1.4 var(--body);-webkit-text-size-adjust:100%}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--yellow);outline-offset:2px}
+
+#app{min-height:100%;max-width:780px;margin:0 auto;padding-inline:16px;padding-block:6px 10px;display:flex;flex-direction:column;gap:6px}
+
+/* Kopfzeile */
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.brand{display:flex;align-items:baseline;gap:10px;min-width:0}
+.brand h1{margin:0;font:400 28px/1 var(--display);letter-spacing:.02em}
+.brand .round{color:var(--mute);font-size:14px;white-space:nowrap}
+.top nav{display:flex;gap:8px}
+.btn{border:0;border-radius:12px;padding:11px 18px;background:var(--paper);color:var(--ink);font-weight:800;cursor:pointer;min-height:44px}
+.btn.quiet{background:rgba(255,255,255,.1);color:#fff;font-weight:600}
+.btn.small{padding:8px 12px;min-height:40px;font-size:14px}
+.btn:active{transform:translateY(1px)}
+
+/* Gegner */
+.opps{display:flex;justify-content:center;gap:10px;min-height:92px}
+.opp{flex:1 1 0;min-width:0;max-width:230px;border-radius:14px;padding:8px 10px;background:rgba(255,255,255,.07);border:2px solid transparent;display:flex;flex-direction:column;gap:4px;position:relative}
+.opp.turn{border-color:var(--paper);background:rgba(255,255,255,.14)}
+.opp-name{display:flex;align-items:center;gap:6px;min-width:0;font-weight:800}
+.opp-name .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag{font-size:12px;font-weight:600;color:var(--mute);border:1px solid rgba(255,255,255,.25);border-radius:6px;padding:0 5px;flex:none}
+.opp-row{display:flex;align-items:center;gap:8px;min-height:34px}
+.opp-fan{display:flex;min-width:0}
+.opp-fan .card+.card{margin-left:-14px}
+.opp-count{font:400 24px/1 var(--display);margin-left:auto}
+.opp-score{font-size:13px;color:var(--mute)}
+.uno-flag{position:absolute;top:-9px;right:8px;background:var(--yellow);color:var(--ink);font:400 15px/1 var(--display);padding:4px 8px;border-radius:8px;transform:rotate(4deg)}
+
+/* Karten */
+.card{--cw:64px;position:relative;flex:none;display:block;width:var(--cw);height:calc(var(--cw)*1.5);padding:0;border:calc(var(--cw)*.06) solid var(--paper);border-radius:calc(var(--cw)*.13);background:var(--cc);font-size:calc(var(--cw)*.5);box-shadow:0 2px 0 rgba(0,0,0,.35),0 6px 14px rgba(0,0,0,.3);cursor:default;text-align:left;overflow:hidden}
+.c-r{--cc:var(--red)}.c-y{--cc:var(--yellow)}.c-g{--cc:var(--green)}.c-b{--cc:var(--blue)}.c-w{--cc:var(--ink)}
+.oval{position:absolute;left:50%;top:50%;width:76%;height:64%;transform:translate(-50%,-50%) rotate(-22deg);background:var(--paper);border-radius:50%;display:grid;place-items:center}
+.c-w .oval{background:conic-gradient(var(--red) 0 25%,var(--blue) 0 50%,var(--green) 0 75%,var(--yellow) 0)}
+.sym{display:block;transform:rotate(22deg);font-family:var(--display);line-height:1;color:var(--sym,var(--cc));-webkit-text-stroke:.07em var(--ink);paint-order:stroke fill}
+.c-w .sym{color:#fff}
+.corner{position:absolute;font:400 .34em/1 var(--display);color:var(--paper);-webkit-text-stroke:.14em var(--ink);paint-order:stroke fill;display:flex;align-items:center;justify-content:center}
+.corner.tl{left:9%;top:5%}
+.corner.br{right:9%;bottom:5%}
+.corner .ico{width:1.1em;height:1.1em}
+.corner .dot{display:block;width:.8em;height:.8em;border-radius:50%;background:conic-gradient(var(--red) 0 25%,var(--blue) 0 50%,var(--green) 0 75%,var(--yellow) 0);box-shadow:0 0 0 .08em var(--ink)}
+.ico{width:1.05em;height:1.05em;display:block;overflow:visible}
+.ico g{fill:none;stroke-linecap:round;stroke-linejoin:round}
+.ico .ink{stroke:var(--ink);stroke-width:5.2}
+.ico .fill{stroke:var(--sym,var(--cc));stroke-width:2.6}
+.corner .ico .fill{stroke:var(--paper)}
+.c-w .sym .ico .fill{stroke:#fff}
+
+/* Eigene Rückseite: Rautenmuster, bewusst ohne Schriftzug */
+.card.back{--cc:#3b3470;background:
+  repeating-linear-gradient(45deg,transparent 0 .32em,rgba(255,255,255,.14) .32em .38em),
+  repeating-linear-gradient(-45deg,transparent 0 .32em,rgba(255,255,255,.14) .32em .38em),
+  var(--cc)}
+.card.back::before{content:"";position:absolute;left:50%;top:50%;width:46%;height:46%;transform:translate(-50%,-50%) rotate(45deg);border-radius:12%;background:conic-gradient(var(--red) 0 25%,var(--blue) 0 50%,var(--green) 0 75%,var(--yellow) 0);box-shadow:0 0 0 .09em var(--paper)}
+.card.mini{--cw:22px;border-width:2px;border-radius:4px;box-shadow:0 1px 0 rgba(0,0,0,.4)}
+.card.mini::before{display:none}
+
+/* Tisch */
+.stage{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-height:250px}
+.felt{--pw:clamp(78px,23vw,108px);position:relative;width:100%;display:grid;place-items:center;padding-block:clamp(22px,6vw,56px)}
+.ring{position:absolute;left:50%;top:50%;width:min(100%,540px);aspect-ratio:2/1;transform:translate(-50%,-50%) rotate(-12deg);border-radius:50%;background:var(--cur,var(--red));transition:background .4s;box-shadow:inset 0 0 0 6px rgba(255,255,255,.2),0 12px 40px rgba(0,0,0,.35)}
+.stage[data-color=r]{--cur:var(--red)}.stage[data-color=y]{--cur:var(--yellow)}.stage[data-color=g]{--cur:var(--green)}.stage[data-color=b]{--cur:var(--blue)}
+.piles{position:relative;display:flex;align-items:center;gap:clamp(18px,6vw,40px)}
+.piles .card{--cw:var(--pw)}
+.drawpile{position:relative;border:0;padding:0;background:none;cursor:pointer;border-radius:12px}
+.drawpile[disabled]{cursor:default}
+.drawpile .count{position:absolute;right:-8px;bottom:-8px;min-width:30px;height:30px;padding-inline:6px;border-radius:15px;background:var(--paper);color:var(--ink);display:grid;place-items:center;font:800 14px/1 var(--body);box-shadow:0 2px 0 rgba(0,0,0,.35)}
+.drawpile.hint .card{animation:nudge 1.3s ease-in-out infinite}
+.discard{position:relative;width:var(--pw);height:calc(var(--pw)*1.5)}
+.discard .card{position:absolute;inset:0;transform:rotate(var(--r,0deg))}
+.discard .card.land{animation:land .28s ease-out}
+.colorname{position:absolute;left:50%;bottom:-2px;transform:translateX(-50%);z-index:2;background:var(--ink);color:#fff;font-weight:800;font-size:13px;padding:3px 10px;border-radius:999px;white-space:nowrap}
+.dirmark{position:absolute;left:6px;top:8px;z-index:2;background:var(--ink);color:#fff;border-radius:999px;padding:2px 10px;font-size:14px;font-weight:800}
+.status{position:relative;z-index:1;background:var(--ink);color:#fff;border-radius:999px;padding:9px 18px;font-weight:800;text-align:center;max-width:100%;text-wrap:balance}
+.status.warn{background:var(--paper);color:var(--ink)}
+.feed{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;align-items:center;gap:1px;color:var(--mute);font-size:14px;min-height:60px;text-align:center}
+.feed li:nth-last-child(1){color:#fff}
+.feed li:nth-last-child(3){opacity:.55}
+
+/* Eigene Hand */
+.me{display:flex;flex-direction:column;gap:2px}
+.me-head{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:46px}
+.me-name{font-weight:800;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.me-name small{color:var(--mute);font-weight:600;margin-left:8px}
+.me-actions{display:flex;gap:8px}
+.unobtn{border:0;border-radius:12px;padding:8px 16px;min-height:44px;background:var(--yellow);color:var(--ink);font:400 22px/1 var(--display);cursor:pointer;transform:rotate(-3deg)}
+.unobtn[aria-pressed=true]{background:var(--paper);transform:rotate(-3deg) scale(.96)}
+.unobtn.pulse:not([aria-pressed=true]){animation:pulse 1s ease-in-out infinite}
+.hand-wrap{overflow-x:auto;overflow-y:hidden;padding-top:18px;padding-bottom:14px;margin-inline:-16px;padding-inline:16px;scrollbar-width:thin}
+.fan{display:flex;width:max-content;margin-inline:auto;min-height:calc(var(--hw)*1.5)}
+.hand-wrap{--hw:clamp(66px,18vw,92px)}
+.fan .card{--cw:var(--hw);transition:transform .15s}
+.fan .card+.card{margin-left:calc(var(--ov,0px)*-1)}
+.fan .card.ok{z-index:1;cursor:pointer;transform:translateY(-14px);box-shadow:0 0 0 3px var(--paper),0 8px 16px rgba(0,0,0,.4)}
+.fan .card.ok:hover{transform:translateY(-20px)}
+.fan .card.no{filter:brightness(.55) saturate(.7)}
+.fan .card.shake{animation:shake .35s}
+.hidden-hand{display:flex;align-items:center;justify-content:center;min-height:calc(var(--hw,80px)*1.5 + 32px);color:var(--mute);text-align:center;padding-inline:12px}
+
+/* Overlays */
+.overlay{position:fixed;inset:0;z-index:20;background:rgba(12,9,26,.82);display:grid;place-items:center;padding:16px;overflow:auto}
+.panel{width:min(100%,470px);background:var(--table-hi);border-radius:22px;padding:22px;display:flex;flex-direction:column;gap:16px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.panel h2{margin:0;font:400 30px/1.05 var(--display);text-wrap:balance}
+.panel p{margin:0}
+.panel .row{display:flex;gap:10px;flex-wrap:wrap}
+.panel .row .btn{flex:1 1 150px}
+fieldset{border:0;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;min-width:0}
+legend{padding:0;margin-bottom:8px;font-weight:800}
+.seg{display:inline-flex;background:rgba(255,255,255,.09);border-radius:12px;padding:3px;gap:2px;flex:none}
+.seg button{border:0;border-radius:10px;background:transparent;padding:9px 14px;min-height:42px;cursor:pointer;font-weight:600}
+.seg button[aria-pressed=true]{background:var(--paper);color:var(--ink);font-weight:800}
+.seats{display:flex;flex-direction:column;gap:8px}
+.seat{display:flex;align-items:center;gap:8px}
+.seat input[type=text]{flex:1;min-width:0;border:2px solid rgba(255,255,255,.2);background:rgba(0,0,0,.2);color:#fff;border-radius:12px;padding:10px 12px;font:inherit;min-height:44px}
+.check{display:flex;gap:12px;align-items:flex-start}
+.check input{width:22px;height:22px;margin:2px 0 0;accent-color:var(--yellow);flex:none}
+.check small{display:block;color:var(--mute)}
+.pickgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pick{border:0;border-radius:16px;min-height:84px;font:400 26px/1 var(--display);color:#fff;-webkit-text-stroke:.07em var(--ink);paint-order:stroke fill;cursor:pointer}
+.pick.r{background:var(--red)}.pick.y{background:var(--yellow)}.pick.g{background:var(--green)}.pick.b{background:var(--blue)}
+.rules{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px}
+table.score{width:100%;border-collapse:collapse}
+table.score th{font-weight:600;color:var(--mute);text-align:left;font-size:14px;padding:4px 6px}
+table.score td{padding:8px 6px;border-top:1px solid rgba(255,255,255,.12)}
+table.score td.n,table.score th.n{text-align:right;font-variant-numeric:tabular-nums}
+table.score tr.win td:first-child{font-weight:800}
+.big{font:400 22px/1 var(--display)}
+
+@keyframes land{from{transform:translateY(46px) scale(1.18) rotate(calc(var(--r,0deg) + 10deg));opacity:.6}to{transform:rotate(var(--r,0deg));opacity:1}}
+@keyframes shake{20%{transform:translateY(0) translateX(-5px)}40%{transform:translateY(0) translateX(5px)}60%{transform:translateY(0) translateX(-3px)}80%{transform:translateY(0) translateX(3px)}}
+@keyframes pulse{50%{transform:rotate(-3deg) scale(1.08)}}
+@keyframes nudge{50%{transform:translateY(-6px)}}
+@media (prefers-reduced-motion:reduce){
+  .ring{transition:none}
+  .discard .card.land,.drawpile.hint .card,.unobtn.pulse,.fan .card.shake{animation:none}
+  .fan .card{transition:none}
+}
+.overlay{grid-template-columns:minmax(0,1fr)}
+.panel{min-width:0}
+.seg{max-width:100%}
+.seg button{white-space:nowrap}
+#seg-count,#seg-target{display:flex;width:100%}
+#seg-count button,#seg-target button{flex:1 1 0;padding-inline:6px}
+@media (max-width:420px){
+  .seat .seg button{padding-inline:9px;font-size:14px}
+  #seg-target button{font-size:14px}
+  .brand .round{display:none}
+}
+@media (max-width:340px){
+  #seg-target button,#seg-count button{font-size:12.5px;padding-inline:3px}
+  .btn.small{padding-inline:10px}
+  .panel{padding:18px}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="top">
+    <div class="brand"><h1>Uno</h1><span class="round" id="roundinfo"></span></div>
+    <nav aria-label="Spielmenü">
+      <button class="btn quiet small" id="btn-rules" type="button">Regeln</button>
+      <button class="btn quiet small" id="btn-new" type="button">Neues Spiel</button>
+    </nav>
+  </header>
+
+  <section class="opps" id="opps" aria-label="Mitspieler"></section>
+
+  <section class="stage" id="stage" data-color="r">
+    <div class="felt">
+      <div class="ring" aria-hidden="true"></div>
+      <div class="dirmark" id="dirmark"></div>
+      <div class="piles">
+        <button class="drawpile" id="drawpile" type="button" aria-label="Karte ziehen">
+          <span class="card back"></span><span class="count" id="drawcount">0</span>
+        </button>
+        <div class="discard" id="discard"></div>
+      </div>
+      <div class="colorname" id="colorname"></div>
+    </div>
+    <div class="status" id="status" role="status"></div>
+    <ul class="feed" id="feed" aria-live="polite"></ul>
+  </section>
+
+  <section class="me" id="me" aria-label="Deine Karten">
+    <div class="me-head">
+      <div class="me-name" id="mename"></div>
+      <div class="me-actions">
+        <button class="btn quiet small" id="btn-pass" type="button" hidden>Passen</button>
+        <button class="unobtn" id="btn-uno" type="button" aria-pressed="false" hidden>Uno!</button>
+      </div>
+    </div>
+    <div class="hand-wrap" id="handwrap"><div class="fan" id="hand"></div></div>
+  </section>
+</div>
+
+<!-- Neues Spiel -->
+<div class="overlay" id="ov-setup" role="dialog" aria-modal="true" aria-labelledby="setup-title" hidden>
+  <form class="panel" id="setup-form">
+    <h2 id="setup-title">Neues Spiel</h2>
+    <fieldset>
+      <legend>Anzahl Spieler</legend>
+      <div class="seg" id="seg-count" role="group" aria-label="Anzahl Spieler"></div>
+    </fieldset>
+    <fieldset>
+      <legend>Wer spielt mit?</legend>
+      <div class="seats" id="seats"></div>
+    </fieldset>
+    <fieldset>
+      <legend>Spielziel</legend>
+      <div class="seg" id="seg-target" role="group" aria-label="Spielziel"></div>
+    </fieldset>
+    <label class="check" for="opt-stack">
+      <input type="checkbox" id="opt-stack">
+      <span>Strafkarten stapeln<small>+2 auf +2 und +4 auf +4 weitergeben.</small></span>
+    </label>
+    <div class="row">
+      <button class="btn quiet" type="button" id="setup-cancel">Zurück zum Spiel</button>
+      <button class="btn" type="submit" id="setup-go">Spiel starten</button>
+    </div>
+  </form>
+</div>
+
+<!-- Gerät weitergeben -->
+<div class="overlay" id="ov-cover" role="dialog" aria-modal="true" aria-labelledby="cover-title" hidden>
+  <div class="panel">
+    <h2 id="cover-title"></h2>
+    <p>Die Karten bleiben verdeckt, bis du tippst.</p>
+    <button class="btn" type="button" id="cover-go">Karten anzeigen</button>
+  </div>
+</div>
+
+<!-- Farbe wählen -->
+<div class="overlay" id="ov-color" role="dialog" aria-modal="true" aria-labelledby="color-title" hidden>
+  <div class="panel">
+    <h2 id="color-title">Welche Farbe?</h2>
+    <div class="pickgrid">
+      <button class="pick r" type="button" data-color="r">Rot</button>
+      <button class="pick y" type="button" data-color="y">Gelb</button>
+      <button class="pick g" type="button" data-color="g">Grün</button>
+      <button class="pick b" type="button" data-color="b">Blau</button>
+    </div>
+    <button class="btn quiet" type="button" id="color-cancel">Abbrechen</button>
+  </div>
+</div>
+
+<!-- Rundenende -->
+<div class="overlay" id="ov-end" role="dialog" aria-modal="true" aria-labelledby="end-title" hidden>
+  <div class="panel">
+    <h2 id="end-title"></h2>
+    <p id="end-sub"></p>
+    <table class="score" id="end-table"></table>
+    <div class="row" id="end-actions"></div>
+  </div>
+</div>
+
+<!-- Regeln -->
+<div class="overlay" id="ov-rules" role="dialog" aria-modal="true" aria-labelledby="rules-title" hidden>
+  <div class="panel">
+    <h2 id="rules-title">Regeln</h2>
+    <ul class="rules">
+      <li>Wirf alle Karten ab. Eine Karte passt, wenn Farbe oder Zahl/Symbol mit der obersten Karte übereinstimmen.</li>
+      <li>Passt nichts, ziehst du eine Karte. Passt diese, darfst du sie sofort spielen, sonst passt du.</li>
+      <li>Aussetzen: Der nächste Spieler setzt aus. Richtungswechsel: Die Reihenfolge dreht sich, bei 2 Spielern wirkt sie wie Aussetzen.</li>
+      <li>+2: Der nächste Spieler zieht 2 Karten und setzt aus. Farbwahl passt immer. +4 Farbwahl darfst du nur legen, wenn du keine Karte der aktuellen Farbe hast.</li>
+      <li>Hast du zwei Karten und spielst eine aus, tippe vorher auf Uno!. Sonst ziehst du 2 Strafkarten.</li>
+      <li>Wer zuerst keine Karten mehr hat, gewinnt die Runde und bekommt die Punkte der Restkarten: Zahlen zählen ihren Wert, Aktionskarten 20, Farbwahl und +4 je 50.</li>
+      <li>Mehrere Menschen an einem Gerät: Vor jedem Zug erscheint ein Sichtschutz. Gerät weiterreichen, dann tippen.</li>
+    </ul>
+    <button class="btn" type="button" id="rules-close">Verstanden</button>
+  </div>
+</div>
+
+<script>
+/*ENGINE-START*/
+const Engine = (function () {
+  'use strict';
+  const COLORS = ['r', 'y', 'g', 'b'];
+  const COLOR_NAMES = { r: 'Rot', y: 'Gelb', g: 'Grün', b: 'Blau' };
+  const ACTION_NAMES = { S: 'Aussetzen', R: 'Richtungswechsel', D: '+2' };
+
+  function makeDeck() {
+    const deck = [];
+    let id = 0;
+    for (const c of COLORS) {
+      deck.push({ id: id++, c, v: '0' });
+      for (let k = 0; k < 2; k++) {
+        for (let n = 1; n <= 9; n++) deck.push({ id: id++, c, v: String(n) });
+        for (const v of ['S', 'R', 'D']) deck.push({ id: id++, c, v });
+      }
+    }
+    for (let k = 0; k < 4; k++) {
+      deck.push({ id: id++, c: 'w', v: 'W' });
+      deck.push({ id: id++, c: 'w', v: 'F' });
+    }
+    return deck;
+  }
+
+  function shuffle(arr, rng) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      const t = a[i]; a[i] = a[j]; a[j] = t;
+    }
+    return a;
+  }
+
+  function cardLabel(card) {
+    if (card.c === 'w') return card.v === 'W' ? 'Farbwahl' : '+4 Farbwahl';
+    return COLOR_NAMES[card.c] + ' ' + (ACTION_NAMES[card.v] || card.v);
+  }
+
+  function points(card) {
+    if (card.v === 'W' || card.v === 'F') return 50;
+    if (card.v === 'S' || card.v === 'R' || card.v === 'D') return 20;
+    return Number(card.v);
+  }
+
+  function say(state, events, text) {
+    events.push(text);
+    state.log.push(text);
+    if (state.log.length > 60) state.log.shift();
+  }
+
+  function topCard(state) { return state.discard[state.discard.length - 1]; }
+  function nextIdx(state, k) {
+    const n = state.players.length;
+    return (((state.cur + state.dir * (k || 1)) % n) + n) % n;
+  }
+  function advance(state, k) { state.cur = nextIdx(state, k || 1); }
+
+  function reshuffle(state, rng) {
+    if (state.discard.length <= 1) return;
+    const top = state.discard.pop();
+    state.draw = shuffle(state.discard, rng || Math.random);
+    state.discard = [top];
+  }
+
+  function drawN(state, p, n, rng) {
+    const got = [];
+    for (let i = 0; i < n; i++) {
+      if (state.draw.length === 0) reshuffle(state, rng);
+      if (state.draw.length === 0) break;
+      const c = state.draw.pop();
+      state.players[p].hand.push(c);
+      got.push(c);
+    }
+    if (state.players[p].hand.length > 1) state.uno[p] = false;
+    return got;
+  }
+
+  function canPlay(state, p, card) {
+    if (state.phase === 'over') return false;
+    if (state.phase === 'drawn' && card.id !== state.drawnId) return false;
+    if (state.pending > 0) return card.v === state.pendingType;
+    if (card.c === 'w') {
+      if (card.v === 'W') return true;
+      return !state.players[p].hand.some(h => h.c === state.color);
+    }
+    return card.c === state.color || card.v === topCard(state).v;
+  }
+
+  function legalIds(state, p) {
+    return state.players[p].hand.filter(c => canPlay(state, p, c)).map(c => c.id);
+  }
+
+  function whyNot(state, p, card) {
+    if (state.phase === 'drawn' && card.id !== state.drawnId) return 'Nur die gezogene Karte darf jetzt gespielt werden.';
+    if (state.pending > 0) return 'Hier hilft nur ' + (state.pendingType === 'D' ? '+2' : '+4') + ' zum Weitergeben. Sonst ziehe die Strafkarten.';
+    if (card.v === 'F') return 'Die +4 geht nur, wenn du keine Karte der aktuellen Farbe hast.';
+    const t = topCard(state);
+    const sym = ACTION_NAMES[t.v] || (t.c === 'w' ? null : t.v);
+    return 'Passt nicht. Du brauchst ' + COLOR_NAMES[state.color] + (sym ? ' oder ' + sym : '') + '.';
+  }
+
+  function startRound(state, rng) {
+    const n = state.players.length;
+    state.round++;
+    state.draw = shuffle(makeDeck(), rng);
+    state.discard = [];
+    state.dir = 1;
+    state.pending = 0;
+    state.pendingType = null;
+    state.phase = 'turn';
+    state.drawnId = null;
+    state.winner = null;
+    state.roundPoints = 0;
+    state.gameWinner = null;
+    state.uno = state.players.map(() => false);
+    state.log = [];
+    for (const p of state.players) p.hand = [];
+    for (let k = 0; k < 7; k++) for (const p of state.players) p.hand.push(state.draw.pop());
+    let top = state.draw.pop();
+    while (top.v === 'F') {
+      state.draw.splice(Math.floor(rng() * (state.draw.length + 1)), 0, top);
+      top = state.draw.pop();
+    }
+    state.discard.push(top);
+    state.cur = (state.round - 1) % n;
+    const events = [];
+    const first = state.players[state.cur].name;
+    if (top.c === 'w') {
+      state.color = COLORS[Math.floor(rng() * 4)];
+      say(state, events, 'Startkarte: Farbwahl. Startfarbe ist ' + COLOR_NAMES[state.color] + '.');
+    } else {
+      state.color = top.c;
+      say(state, events, 'Startkarte: ' + cardLabel(top) + '.');
+    }
+    if (top.v === 'S') {
+      say(state, events, first + ' setzt aus.');
+      advance(state, 1);
+    } else if (top.v === 'R') {
+      if (n === 2) { say(state, events, first + ' setzt aus.'); advance(state, 1); }
+      else { state.dir = -1; say(state, events, 'Die Runde startet in die andere Richtung.'); }
+    } else if (top.v === 'D') {
+      drawN(state, state.cur, 2, rng);
+      say(state, events, first + ' zieht 2 Karten und setzt aus.');
+      advance(state, 1);
+    }
+    return events;
+  }
+
+  function newGame(cfg, rng) {
+    const state = {
+      cfg: { stack: !!cfg.stack, target: cfg.target || 0 },
+      players: cfg.players.map(p => ({ name: p.name, human: !!p.human, hand: [], score: 0 })),
+      draw: [], discard: [], dir: 1, cur: 0, color: 'r',
+      pending: 0, pendingType: null, phase: 'turn', drawnId: null,
+      uno: [], round: 0, winner: null, roundPoints: 0, gameWinner: null, log: []
+    };
+    startRound(state, rng);
+    return state;
+  }
+
+  function nextRound(state, rng) { return startRound(state, rng); }
+
+  function play(state, p, id, chosen, rng) {
+    if (state.phase === 'over') return { ok: false, reason: 'Die Runde ist vorbei.' };
+    if (state.cur !== p) return { ok: false, reason: 'Du bist nicht dran.' };
+    const pl = state.players[p];
+    const idx = pl.hand.findIndex(c => c.id === id);
+    if (idx < 0) return { ok: false, reason: 'Diese Karte hast du nicht.' };
+    const card = pl.hand[idx];
+    if (!canPlay(state, p, card)) return { ok: false, reason: whyNot(state, p, card) };
+    if (card.c === 'w' && COLORS.indexOf(chosen) < 0) return { ok: false, reason: 'Wähle eine Farbe.', needColor: true };
+
+    const events = [];
+    const called = state.uno[p];
+    const nxt = nextIdx(state, 1);
+    pl.hand.splice(idx, 1);
+    state.discard.push(card);
+    state.color = card.c === 'w' ? chosen : card.c;
+    state.phase = 'turn';
+    state.drawnId = null;
+    say(state, events, pl.name + ' spielt ' + cardLabel(card) + (card.c === 'w' ? ' und wählt ' + COLOR_NAMES[chosen] : '') + '.');
+
+    const n = state.players.length;
+    switch (card.v) {
+      case 'S':
+        say(state, events, state.players[nxt].name + ' setzt aus.');
+        advance(state, 2);
+        break;
+      case 'R':
+        if (n === 2) {
+          say(state, events, state.players[nxt].name + ' setzt aus.');
+          advance(state, 2);
+        } else {
+          state.dir = -state.dir;
+          say(state, events, 'Die Richtung wechselt.');
+          advance(state, 1);
+        }
+        break;
+      case 'D':
+      case 'F': {
+        const amount = card.v === 'D' ? 2 : 4;
+        if (state.cfg.stack) {
+          state.pending += amount;
+          state.pendingType = card.v;
+          advance(state, 1);
+          if (pl.hand.length > 0) say(state, events, state.players[state.cur].name + ' muss +' + state.pending + ' stapeln oder ziehen.');
+        } else {
+          drawN(state, nxt, amount, rng);
+          say(state, events, state.players[nxt].name + ' zieht ' + amount + ' Karten und setzt aus.');
+          advance(state, 2);
+        }
+        break;
+      }
+      default:
+        advance(state, 1);
+    }
+
+    if (pl.hand.length === 0) {
+      if (state.pending > 0) {
+        const v = state.cur;
+        const k = state.pending;
+        drawN(state, v, k, rng);
+        say(state, events, state.players[v].name + ' zieht ' + k + ' Karten.');
+        state.pending = 0;
+        state.pendingType = null;
+      }
+      let pts = 0;
+      state.players.forEach((q, i) => { if (i !== p) pts += q.hand.reduce((a, c) => a + points(c), 0); });
+      pl.score += pts;
+      state.phase = 'over';
+      state.winner = p;
+      state.roundPoints = pts;
+      if (state.cfg.target > 0 && pl.score >= state.cfg.target) state.gameWinner = p;
+      say(state, events, pl.name + ' gewinnt die Runde.');
+      return { ok: true, events, won: true };
+    }
+    if (pl.hand.length === 1) {
+      if (called) say(state, events, pl.name + ': Uno!');
+      else {
+        drawN(state, p, 2, rng);
+        say(state, events, pl.name + ' hat Uno vergessen und zieht 2 Karten.');
+      }
+    }
+    return { ok: true, events };
+  }
+
+  function draw(state, p, rng) {
+    if (state.phase !== 'turn' || state.cur !== p) return { ok: false };
+    const events = [];
+    const pl = state.players[p];
+    if (state.pending > 0) {
+      const k = state.pending;
+      const got = drawN(state, p, k, rng);
+      say(state, events, pl.name + ' zieht ' + got.length + ' Karten.');
+      state.pending = 0;
+      state.pendingType = null;
+      advance(state, 1);
+      return { ok: true, events, penalty: got.length };
+    }
+    const got = drawN(state, p, 1, rng);
+    if (got.length === 0) {
+      say(state, events, pl.name + ' kann nicht ziehen und passt.');
+      advance(state, 1);
+      return { ok: true, events };
+    }
+    const card = got[0];
+    if (canPlay(state, p, card)) {
+      state.phase = 'drawn';
+      state.drawnId = card.id;
+      say(state, events, pl.name + ' zieht eine Karte.');
+      return { ok: true, events, drawn: card, canPlayDrawn: true };
+    }
+    say(state, events, pl.name + ' zieht eine Karte und passt.');
+    advance(state, 1);
+    return { ok: true, events, drawn: card };
+  }
+
+  function pass(state, p) {
+    if (state.phase !== 'drawn' || state.cur !== p) return { ok: false };
+    const events = [];
+    say(state, events, state.players[p].name + ' passt.');
+    state.phase = 'turn';
+    state.drawnId = null;
+    advance(state, 1);
+    return { ok: true, events };
+  }
+
+  function callUno(state, p) {
+    if (state.phase !== 'over' && state.cur === p && state.players[p].hand.length === 2) {
+      state.uno[p] = true;
+      return true;
+    }
+    return false;
+  }
+
+  function botChoose(state, p, rng) {
+    const hand = state.players[p].hand;
+    const legal = hand.filter(c => canPlay(state, p, c));
+    if (legal.length === 0) return { action: state.phase === 'drawn' ? 'pass' : 'draw' };
+    const nextHand = state.players[nextIdx(state, 1)].hand.length;
+    const colorCount = {};
+    for (const c of hand) colorCount[c.c] = (colorCount[c.c] || 0) + 1;
+    let best = null, bestScore = -Infinity;
+    for (const c of legal) {
+      let s = rng() * 3;
+      if (c.c !== 'w') s += 8;
+      if (c.v === 'S' || c.v === 'R' || c.v === 'D') s += nextHand <= 2 ? 18 : 4;
+      if (c.v === 'F') s += nextHand <= 2 ? 14 : -10;
+      if (c.v === 'W') s -= 6;
+      s += points(c) / 6;
+      if (c.c !== 'w') s += (colorCount[c.c] || 0) * 0.8;
+      if (s > bestScore) { bestScore = s; best = c; }
+    }
+    let color = null;
+    if (best.c === 'w') {
+      const counts = { r: 0, y: 0, g: 0, b: 0 };
+      for (const c of hand) if (c.id !== best.id && counts[c.c] !== undefined) counts[c.c]++;
+      let max = -1; let picks = [];
+      for (const k of COLORS) {
+        if (counts[k] > max) { max = counts[k]; picks = [k]; }
+        else if (counts[k] === max) picks.push(k);
+      }
+      color = picks[Math.floor(rng() * picks.length)];
+    }
+    return { action: 'play', id: best.id, color };
+  }
+
+  return { COLORS, COLOR_NAMES, makeDeck, shuffle, cardLabel, points, topCard, nextIdx, canPlay, legalIds, whyNot,
+           newGame, nextRound, startRound, play, draw, pass, callUno, botChoose, drawN };
+})();
+if (typeof module !== 'undefined' && module.exports) module.exports = Engine;
+/*ENGINE-END*/
+
+(function () {
+  'use strict';
+  const $ = (s) => document.querySelector(s);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const rng = Math.random;
+  const CN = Engine.COLOR_NAMES;
+  const ORDER_V = { '0': 0, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, S: 10, R: 11, D: 12, W: 13, F: 14 };
+  const ORDER_C = { r: 0, y: 1, g: 2, b: 3, w: 4 };
+
+  /* ---------- Einstellungen ---------- */
+  const DEFAULT_CFG = {
+    count: 3,
+    seats: [
+      { name: 'Du', human: true }, { name: 'Mia', human: false },
+      { name: 'Ben', human: false }, { name: 'Zoe', human: false }
+    ],
+    target: 500,
+    stack: false
+  };
+  function loadCfg() {
+    try {
+      const raw = localStorage.getItem('uno-am-tisch');
+      if (raw) {
+        const c = JSON.parse(raw);
+        if (c && c.count >= 2 && c.count <= 4 && Array.isArray(c.seats) && c.seats.length === 4) return c;
+      }
+    } catch (e) { /* ohne Speicher weiterspielen */ }
+    return JSON.parse(JSON.stringify(DEFAULT_CFG));
+  }
+  function saveCfg() {
+    try { localStorage.setItem('uno-am-tisch', JSON.stringify(cfg)); } catch (e) { /* egal */ }
+  }
+
+  let cfg = loadCfg();
+  let S = null;          // Spielzustand
+  let gen = 0;           // erhöht sich bei jedem neuen Spiel, stoppt alte Timer
+  let viewer = -1;       // wessen Karten gerade sichtbar sein dürfen (mehrere Menschen)
+  let lastTopId = null;
+  let flashMsg = '';
+  let flashTimer = null;
+  let pickId = null;
+  let endShown = false;
+
+  /* ---------- Karten zeichnen ---------- */
+  function svgIcon(kind) {
+    const d = kind === 'S'
+      ? '<circle cx="12" cy="12" r="7.5"/><path d="M6.7 17.3L17.3 6.7"/>'
+      : '<path d="M5 8h12M14 4.5L17.5 8L14 11.5M19 16H7M10 12.5L6.5 16L10 19.5"/>';
+    return '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><g class="ink">' + d + '</g><g class="fill">' + d + '</g></svg>';
+  }
+  function faceSym(c) {
+    if (c.v === 'S' || c.v === 'R') return svgIcon(c.v);
+    if (c.v === 'D') return '+2';
+    if (c.v === 'F') return '+4';
+    if (c.v === 'W') return '';
+    return c.v;
+  }
+  function cornerSym(c) {
+    if (c.v === 'W') return '<i class="dot"></i>';
+    return faceSym(c);
+  }
+  function cardInner(c) {
+    return '<span class="corner tl">' + cornerSym(c) + '</span><span class="oval"><span class="sym">' + faceSym(c) + '</span></span><span class="corner br">' + cornerSym(c) + '</span>';
+  }
+  function rot(id) { return ((id * 37) % 21) - 10; }
+
+  /* ---------- Hilfen ---------- */
+  function humans() { return S.players.map((p, i) => p.human ? i : -1).filter((i) => i >= 0); }
+  function owner() {
+    const h = humans();
+    if (h.length === 1) return h[0];
+    if (h.length > 1 && S.players[S.cur].human && viewer === S.cur && S.phase !== 'over') return S.cur;
+    if (h.length > 1 && S.phase === 'over' && viewer >= 0) return viewer;
+    return null;
+  }
+  function anyOverlay() {
+    return Array.prototype.some.call(document.querySelectorAll('.overlay'), (o) => !o.hidden);
+  }
+  function show(id) { const o = $(id); o.hidden = false; return o; }
+  function hide(id) { $(id).hidden = true; }
+  function focusFirst(o, sel) {
+    const t = o.querySelector(sel || 'button, input');
+    if (t) t.focus();
+  }
+  function flash(msg) {
+    flashMsg = msg;
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => { flashMsg = ''; renderStatus(); }, 2600);
+    renderStatus();
+  }
+  function schedule(fn, delay) {
+    const my = gen;
+    setTimeout(function tick() {
+      if (my !== gen) return;
+      if (anyOverlay()) { setTimeout(tick, 300); return; }
+      fn();
+    }, delay);
+  }
+
+  /* ---------- Rendern ---------- */
+  function renderTop() {
+    $('#roundinfo').textContent = 'Runde ' + S.round + (S.cfg.target > 0 ? ', Ziel ' + S.cfg.target + ' Punkte' : '');
+  }
+
+  function renderOpps(own) {
+    const n = S.players.length;
+    const start = own === null ? 0 : own + 1;
+    const order = [];
+    for (let k = 0; k < n; k++) {
+      const i = (start + k) % n;
+      if (i !== own) order.push(i);
+    }
+    $('#opps').innerHTML = order.map((i) => {
+      const p = S.players[i];
+      const shown = Math.min(p.hand.length, 9);
+      let fan = '';
+      for (let k = 0; k < shown; k++) fan += '<span class="card back mini"></span>';
+      return '<div class="opp' + (i === S.cur && S.phase !== 'over' ? ' turn' : '') + '">' +
+        (p.hand.length === 1 ? '<span class="uno-flag">Uno!</span>' : '') +
+        '<div class="opp-name"><span class="nm">' + esc(p.name) + '</span>' + (p.human ? '' : '<span class="tag">Bot</span>') + '</div>' +
+        '<div class="opp-row"><div class="opp-fan" aria-hidden="true">' + fan + '</div>' +
+        '<span class="opp-count" aria-label="' + p.hand.length + ' Karten">' + p.hand.length + '</span></div>' +
+        (S.cfg.target > 0 ? '<div class="opp-score">' + p.score + ' Punkte</div>' : '') +
+        '</div>';
+    }).join('');
+  }
+
+  function renderTable(own) {
+    $('#stage').dataset.color = S.color;
+    $('#colorname').textContent = 'Farbe: ' + CN[S.color];
+    $('#dirmark').textContent = S.dir === 1 ? '↻ im Uhrzeigersinn' : '↺ gegen den Uhrzeigersinn';
+    $('#drawcount').textContent = S.draw.length;
+    const d = S.discard;
+    const top = d[d.length - 1];
+    let html = '';
+    for (let k = Math.max(0, d.length - 3); k < d.length; k++) {
+      const c = d[k];
+      const isTop = k === d.length - 1;
+      const wild = c.c === 'w' && isTop;
+      html += '<span class="card c-' + c.c + (isTop && top.id !== lastTopId ? ' land' : '') + '" style="--r:' + rot(c.id) + 'deg"' +
+        (wild ? ' data-w="' + S.color + '"' : '') + ' aria-hidden="' + (isTop ? 'false' : 'true') + '"' +
+        (isTop ? ' role="img" aria-label="Oberste Karte: ' + esc(Engine.cardLabel(c)) + '"' : '') + '>' + cardInner(c) + '</span>';
+    }
+    $('#discard').innerHTML = html;
+    lastTopId = top.id;
+
+    const myTurn = own !== null && own === S.cur && S.phase === 'turn';
+    const legal = myTurn ? Engine.legalIds(S, own) : [];
+    const pile = $('#drawpile');
+    pile.disabled = !myTurn;
+    pile.classList.toggle('hint', myTurn && legal.length === 0);
+    pile.setAttribute('aria-label', S.pending > 0 && myTurn ? S.pending + ' Strafkarten ziehen' : 'Karte ziehen');
+  }
+
+  function renderStatus() {
+    const el = $('#status');
+    const own = owner();
+    let msg;
+    let warn = false;
+    if (flashMsg) { msg = flashMsg; warn = true; }
+    else if (S.phase === 'over') msg = 'Runde beendet.';
+    else {
+      const p = S.players[S.cur];
+      if (!p.human) msg = p.name + ' überlegt …';
+      else if (S.phase === 'drawn') msg = p.name + ': Gezogene Karte spielen oder passen.';
+      else if (S.pending > 0) msg = p.name + ': +' + S.pending + ' stapeln oder ' + S.pending + ' Karten ziehen.';
+      else msg = p.name + ' ist dran.';
+    }
+    el.textContent = msg;
+    el.classList.toggle('warn', warn);
+    const feed = S.log.slice(-3);
+    $('#feed').innerHTML = feed.map((t) => '<li>' + esc(t) + '</li>').join('');
+  }
+
+  function sortHand(hand) {
+    return hand.slice().sort((a, b) => (ORDER_C[a.c] - ORDER_C[b.c]) || (ORDER_V[a.v] - ORDER_V[b.v]) || (a.id - b.id));
+  }
+
+  function renderHand(own) {
+    const fan = $('#hand');
+    const wrap = $('#handwrap');
+    const name = $('#mename');
+    const unoBtn = $('#btn-uno');
+    const passBtn = $('#btn-pass');
+    if (own === null) {
+      const h = humans();
+      name.textContent = h.length === 0 ? 'Zuschauen' : 'Karten verdeckt';
+      fan.innerHTML = '';
+      fan.style.minHeight = '0';
+      let note = '';
+      if (h.length === 0) note = 'Alle Spieler sind Bots. Lehn dich zurück.';
+      else if (S.phase === 'over') note = 'Runde beendet.';
+      else if (S.players[S.cur].human) note = 'Warte auf den Sichtschutz.';
+      else note = S.players[S.cur].name + ' ist dran. Deine Karten sind verdeckt.';
+      wrap.innerHTML = '<div class="fan" id="hand" style="min-height:0"></div><div class="hidden-hand">' + esc(note) + '</div>';
+      unoBtn.hidden = true;
+      passBtn.hidden = true;
+      return;
+    }
+    // sicherstellen, dass der Fächer im Container steckt
+    if (wrap.querySelector('.hidden-hand') || !wrap.contains($('#hand'))) wrap.innerHTML = '<div class="fan" id="hand"></div>';
+    const f = $('#hand');
+    f.style.minHeight = '';
+    const P = S.players[own];
+    const active = own === S.cur && S.phase !== 'over';
+    const legal = new Set(active ? Engine.legalIds(S, own) : []);
+    const cards = sortHand(P.hand);
+    f.innerHTML = cards.map((c) => {
+      const ok = legal.has(c.id);
+      const cls = 'card c-' + c.c + (active ? (ok ? ' ok' : ' no') : '');
+      return '<button type="button" class="' + cls + '" data-id="' + c.id + '" aria-label="' + esc(Engine.cardLabel(c)) + (ok ? ', spielbar' : '') + '"' +
+        (active ? '' : ' tabindex="-1"') + '>' + cardInner(c) + '</button>';
+    }).join('');
+    name.innerHTML = esc(P.name) + '<small>' + P.hand.length + ' Karten' + (S.cfg.target > 0 ? ', ' + P.score + ' Punkte' : '') + '</small>';
+    unoBtn.hidden = !(active && P.hand.length === 2);
+    unoBtn.setAttribute('aria-pressed', S.uno[own] ? 'true' : 'false');
+    unoBtn.classList.toggle('pulse', !S.uno[own]);
+    passBtn.hidden = !(active && S.phase === 'drawn');
+    layoutHand();
+  }
+
+  function layoutHand() {
+    const f = $('#hand');
+    const first = f && f.querySelector('.card');
+    if (!first) return;
+    const cards = f.querySelectorAll('.card');
+    const n = cards.length;
+    const cw = first.getBoundingClientRect().width;
+    const avail = $('#handwrap').clientWidth - 40;
+    if (n > 1) {
+      let ov = (n * cw - avail) / (n - 1);
+      ov = Math.max(-8, Math.min(ov, cw * 0.66));
+      f.style.setProperty('--ov', ov + 'px');
+    } else f.style.setProperty('--ov', '0px');
+  }
+
+  function render() {
+    const own = owner();
+    renderTop();
+    renderOpps(own);
+    renderTable(own);
+    renderStatus();
+    renderHand(own);
+  }
+
+  /* ---------- Ablauf ---------- */
+  function proceed() {
+    render();
+    if (S.phase === 'over') {
+      if (!endShown) {
+        endShown = true;
+        schedule(showEnd, 900);
+      }
+      return;
+    }
+    const p = S.cur;
+    const pl = S.players[p];
+    if (!pl.human) {
+      schedule(botTurn, S.phase === 'drawn' ? 700 : 1050);
+      return;
+    }
+    if (humans().length > 1 && viewer !== p) {
+      $('#cover-title').textContent = 'Gerät an ' + pl.name + ' geben';
+      const o = show('#ov-cover');
+      focusFirst(o);
+    }
+  }
+
+  function botTurn() {
+    const p = S.cur;
+    if (S.phase === 'over' || S.players[p].human) return;
+    const ch = Engine.botChoose(S, p, rng);
+    if (ch.action === 'play') {
+      if (S.players[p].hand.length === 2 && rng() < 0.9) Engine.callUno(S, p);
+      Engine.play(S, p, ch.id, ch.color, rng);
+    } else if (ch.action === 'draw') Engine.draw(S, p, rng);
+    else Engine.pass(S, p);
+    proceed();
+  }
+
+  function startGame() {
+    gen++;
+    endShown = false;
+    viewer = -1;
+    lastTopId = null;
+    flashMsg = '';
+    const players = [];
+    for (let i = 0; i < cfg.count; i++) {
+      const s = cfg.seats[i];
+      players.push({ name: (s.name || '').trim() || 'Spieler ' + (i + 1), human: !!s.human });
+    }
+    S = Engine.newGame({ players, stack: cfg.stack, target: cfg.target }, rng);
+    ['#ov-setup', '#ov-cover', '#ov-color', '#ov-end', '#ov-rules'].forEach(hide);
+    proceed();
+  }
+
+  function nextRound() {
+    gen++;
+    endShown = false;
+    lastTopId = null;
+    flashMsg = '';
+    hide('#ov-end');
+    Engine.nextRound(S, rng);
+    proceed();
+  }
+
+  /* ---------- Eingaben ---------- */
+  function humanPlay(id, color) {
+    const p = S.cur;
+    const r = Engine.play(S, p, id, color, rng);
+    if (!r.ok) { flash(r.reason); return; }
+    flashMsg = '';
+    proceed();
+  }
+
+  $('#handwrap').addEventListener('click', onHandClick);
+  function onHandClick(e) {
+    const b = e.target.closest('.card[data-id]');
+    if (!b || !S) return;
+    const own = owner();
+    if (own === null || own !== S.cur || S.phase === 'over') return;
+    const id = Number(b.dataset.id);
+    const card = S.players[own].hand.find((c) => c.id === id);
+    if (!card) return;
+    if (!Engine.canPlay(S, own, card)) {
+      b.classList.remove('shake');
+      void b.offsetWidth;
+      b.classList.add('shake');
+      flash(Engine.whyNot(S, own, card));
+      return;
+    }
+    if (card.c === 'w') {
+      pickId = id;
+      const o = show('#ov-color');
+      focusFirst(o, '.pick');
+      return;
+    }
+    humanPlay(id);
+  }
+
+  $('#ov-color').addEventListener('click', (e) => {
+    const b = e.target.closest('.pick');
+    if (!b || pickId === null) return;
+    const id = pickId;
+    pickId = null;
+    hide('#ov-color');
+    humanPlay(id, b.dataset.color);
+  });
+  $('#color-cancel').addEventListener('click', () => { pickId = null; hide('#ov-color'); });
+
+  $('#drawpile').addEventListener('click', () => {
+    const own = owner();
+    if (own === null || own !== S.cur || S.phase !== 'turn') return;
+    const r = Engine.draw(S, own, rng);
+    if (!r.ok) return;
+    if (r.canPlayDrawn) flash('Du hast ' + Engine.cardLabel(r.drawn) + ' gezogen. Spielen oder passen.');
+    else if (r.drawn) flash('Gezogen: ' + Engine.cardLabel(r.drawn) + '. Passt nicht, du passt.');
+    proceed();
+  });
+
+  $('#btn-pass').addEventListener('click', () => {
+    const own = owner();
+    if (own === null) return;
+    if (Engine.pass(S, own).ok) { flashMsg = ''; proceed(); }
+  });
+
+  $('#btn-uno').addEventListener('click', () => {
+    const own = owner();
+    if (own === null) return;
+    if (Engine.callUno(S, own)) render();
+  });
+
+  $('#cover-go').addEventListener('click', () => {
+    viewer = S.cur;
+    hide('#ov-cover');
+    render();
+  });
+
+  /* ---------- Rundenende ---------- */
+  function showEnd() {
+    const w = S.players[S.winner];
+    const game = S.gameWinner !== null;
+    const single = S.cfg.target === 0;
+    $('#end-title').textContent = w.name + (game ? ' gewinnt das Spiel' : ' gewinnt die Runde');
+    $('#end-sub').textContent = (S.roundPoints > 0 ? '+' + S.roundPoints + ' Punkte aus den Restkarten.' : 'Keine Restkarten bei den anderen.');
+    const rows = S.players.map((p, i) => ({ p, i })).sort((a, b) => b.p.score - a.p.score || a.i - b.i);
+    $('#end-table').innerHTML = '<tr><th scope="col">Spieler</th><th scope="col" class="n">Restkarten</th><th scope="col" class="n">Punkte</th></tr>' +
+      rows.map((r) => '<tr' + (r.i === S.winner ? ' class="win"' : '') + '><td>' + esc(r.p.name) + '</td><td class="n">' + r.p.hand.length + '</td><td class="n">' + r.p.score + '</td></tr>').join('');
+    const actions = $('#end-actions');
+    if (game || single) {
+      actions.innerHTML = '<button class="btn quiet" type="button" id="end-settings">Einstellungen</button><button class="btn" type="button" id="end-again">' + (single ? 'Noch eine Runde' : 'Neues Spiel') + '</button>';
+      $('#end-again').addEventListener('click', startGame);
+      $('#end-settings').addEventListener('click', () => { hide('#ov-end'); openSetup(); });
+    } else {
+      actions.innerHTML = '<button class="btn" type="button" id="end-next">Nächste Runde</button>';
+      $('#end-next').addEventListener('click', nextRound);
+    }
+    const o = show('#ov-end');
+    focusFirst(o, '.btn:last-child');
+  }
+
+  /* ---------- Neues Spiel (Einstellungen) ---------- */
+  function renderSetup() {
+    $('#seg-count').innerHTML = [2, 3, 4].map((n) => '<button type="button" data-count="' + n + '" aria-pressed="' + (cfg.count === n) + '">' + n + ' Spieler</button>').join('');
+    let seats = '';
+    for (let i = 0; i < cfg.count; i++) {
+      const s = cfg.seats[i];
+      seats += '<div class="seat"><input type="text" id="name-' + i + '" maxlength="14" value="' + esc(s.name) + '" aria-label="Name von Spieler ' + (i + 1) + '" autocomplete="off">' +
+        '<div class="seg" role="group" aria-label="Spielertyp ' + (i + 1) + '">' +
+        '<button type="button" data-seat="' + i + '" data-human="1" aria-pressed="' + s.human + '">Mensch</button>' +
+        '<button type="button" data-seat="' + i + '" data-human="0" aria-pressed="' + !s.human + '">Bot</button></div></div>';
+    }
+    $('#seats').innerHTML = seats;
+    const targets = [[0, 'Eine Runde'], [200, '200 Punkte'], [500, '500 Punkte']];
+    $('#seg-target').innerHTML = targets.map((t) => '<button type="button" data-target="' + t[0] + '" aria-pressed="' + (cfg.target === t[0]) + '">' + t[1] + '</button>').join('');
+    $('#opt-stack').checked = !!cfg.stack;
+  }
+  function openSetup() {
+    renderSetup();
+    $('#setup-cancel').hidden = !S;
+    const o = show('#ov-setup');
+    focusFirst(o, '#setup-go');
+  }
+  $('#seg-count').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-count]');
+    if (!b) return;
+    cfg.count = Number(b.dataset.count);
+    renderSetup();
+  });
+  $('#seats').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-seat]');
+    if (!b) return;
+    cfg.seats[Number(b.dataset.seat)].human = b.dataset.human === '1';
+    renderSetup();
+  });
+  $('#seats').addEventListener('input', (e) => {
+    const t = e.target;
+    if (t && t.id && t.id.indexOf('name-') === 0) cfg.seats[Number(t.id.slice(5))].name = t.value;
+  });
+  $('#seg-target').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-target]');
+    if (!b) return;
+    cfg.target = Number(b.dataset.target);
+    renderSetup();
+  });
+  $('#opt-stack').addEventListener('change', (e) => { cfg.stack = e.target.checked; });
+  $('#setup-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    saveCfg();
+    startGame();
+  });
+  $('#setup-cancel').addEventListener('click', () => hide('#ov-setup'));
+  $('#btn-new').addEventListener('click', openSetup);
+
+  /* ---------- Regeln ---------- */
+  $('#btn-rules').addEventListener('click', () => { const o = show('#ov-rules'); focusFirst(o); });
+  $('#rules-close').addEventListener('click', () => hide('#ov-rules'));
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (!$('#ov-rules').hidden) hide('#ov-rules');
+    else if (!$('#ov-color').hidden) { pickId = null; hide('#ov-color'); }
+    else if (!$('#ov-setup').hidden && S) hide('#ov-setup');
+  });
+
+  window.addEventListener('resize', () => { if (S) layoutHand(); });
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (S) layoutHand(); });
+
+  startGame();
+})();
+</script>
+</body>
+</html>

@@ -155,6 +155,20 @@ table.score td.n,table.score th.n{text-align:right;font-variant-numeric:tabular-
 table.score tr.win td:first-child{font-weight:800}
 .big{font:400 22px/1 var(--display)}
 
+/* Online */
+.panel .muted{color:var(--mute)}
+.panel input[type=text].field{width:100%;border:2px solid rgba(255,255,255,.2);background:rgba(0,0,0,.2);color:#fff;border-radius:12px;padding:10px 12px;font:inherit;min-height:44px}
+.field-label{display:flex;flex-direction:column;gap:6px;font-weight:800}
+.roomcode{font-family:var(--display);letter-spacing:.12em;color:var(--yellow)}
+.codeinput{text-transform:uppercase;letter-spacing:.2em;text-align:center;font-weight:800}
+.slots{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.slotrow{display:flex;align-items:center;gap:8px;min-height:44px;padding:4px 6px 4px 12px;border-radius:12px;background:rgba(255,255,255,.08)}
+.slotrow .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:800}
+.slotrow.empty{background:transparent;border:2px dashed rgba(255,255,255,.2);color:var(--mute);padding-left:10px}
+.slotrow .x{border:0;background:rgba(255,255,255,.1);border-radius:10px;min-width:44px;min-height:40px;cursor:pointer;font-weight:800}
+.linkrow{display:flex;gap:8px}
+.linkrow input{flex:1;min-width:0;border:2px solid rgba(255,255,255,.2);background:rgba(0,0,0,.2);color:var(--mute);border-radius:12px;padding:8px 10px;font:inherit;font-size:14px}
+.errbox{background:rgba(227,52,43,.18);border:2px solid var(--red);border-radius:12px;padding:10px 12px}
 @keyframes land{from{transform:translateY(46px) scale(1.18) rotate(calc(var(--r,0deg) + 10deg));opacity:.6}to{transform:rotate(var(--r,0deg));opacity:1}}
 @keyframes shake{20%{transform:translateY(0) translateX(-5px)}40%{transform:translateY(0) translateX(5px)}60%{transform:translateY(0) translateX(-3px)}80%{transform:translateY(0) translateX(3px)}}
 @keyframes pulse{50%{transform:rotate(-3deg) scale(1.08)}}
@@ -187,6 +201,7 @@ table.score tr.win td:first-child{font-weight:800}
   <header class="top">
     <div class="brand"><h1>Uno</h1><span class="round" id="roundinfo"></span></div>
     <nav aria-label="Spielmenü">
+      <button class="btn quiet small" id="btn-online" type="button">Online</button>
       <button class="btn quiet small" id="btn-rules" type="button">Regeln</button>
       <button class="btn quiet small" id="btn-new" type="button">Neues Spiel</button>
     </nav>
@@ -282,6 +297,11 @@ table.score tr.win td:first-child{font-weight:800}
   </div>
 </div>
 
+<!-- Online -->
+<div class="overlay" id="ov-online" role="dialog" aria-modal="true" aria-labelledby="online-title" hidden>
+  <div class="panel" id="online-panel"></div>
+</div>
+
 <!-- Regeln -->
 <div class="overlay" id="ov-rules" role="dialog" aria-modal="true" aria-labelledby="rules-title" hidden>
   <div class="panel">
@@ -295,6 +315,11 @@ table.score tr.win td:first-child{font-weight:800}
       <li>Wer zuerst keine Karten mehr hat, gewinnt die Runde und bekommt die Punkte der Restkarten: Zahlen zählen ihren Wert, Aktionskarten 20, Farbwahl und +4 je 50.</li>
       <li>Mehrere Menschen an einem Gerät: Vor jedem Zug erscheint ein Sichtschutz. Gerät weiterreichen, dann tippen.</li>
     </ul>
+    <p class="muted" id="log-info" style="font-size:13px"></p>
+    <div class="row">
+      <button class="btn quiet small" type="button" id="log-dl">Protokoll speichern</button>
+      <button class="btn quiet small" type="button" id="log-clear">Protokoll löschen</button>
+    </div>
     <button class="btn" type="button" id="rules-close">Verstanden</button>
   </div>
 </div>
@@ -627,11 +652,159 @@ const Engine = (function () {
     return { action: 'play', id: best.id, color };
   }
 
+  /* ---- Online: Sicht eines Spielers auf den Host-Zustand ---- */
+  const VALID_V = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'S', 'R', 'D', 'W', 'F'];
+  const isInt = (n, lo, hi) => Number.isInteger(n) && n >= lo && n <= hi;
+  const cleanStr = (s, max) => String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f]/g, '').slice(0, max);
+
+  function cleanCard(c) {
+    if (!c || typeof c !== 'object' || !isInt(c.id, 0, 107)) return null;
+    const v = String(c.v);
+    if (VALID_V.indexOf(v) < 0) return null;
+    const wild = v === 'W' || v === 'F';
+    if (wild ? c.c !== 'w' : COLORS.indexOf(c.c) < 0) return null;
+    return { id: c.id, c: c.c, v };
+  }
+
+  // Der Host schickt jedem Spieler nur seine eigenen Karten. Nach Rundenende sind alle Hände offen.
+  function makeView(state, seat) {
+    const over = state.phase === 'over';
+    return {
+      seat, round: state.round,
+      cfg: { stack: !!state.cfg.stack, target: state.cfg.target },
+      color: state.color, dir: state.dir, cur: state.cur, phase: state.phase,
+      pending: state.pending, pendingType: state.pendingType,
+      drawnId: state.cur === seat ? state.drawnId : null,
+      drawCount: state.draw.length,
+      discard: state.discard.slice(-3),
+      winner: state.winner, roundPoints: state.roundPoints, gameWinner: state.gameWinner,
+      log: state.log.slice(-3),
+      uno: state.uno.map((u, i) => i === seat ? !!u : false),
+      players: state.players.map((p, i) => ({
+        name: p.name, human: p.human, score: p.score, count: p.hand.length,
+        hand: (i === seat || over) ? p.hand : null
+      }))
+    };
+  }
+
+  // Baut aus einer (nicht vertrauenswürdigen) Sicht einen Zustand, mit dem die Oberfläche rendern kann.
+  // Gibt null zurück, wenn etwas nicht stimmt.
+  function stateFromView(v) {
+    try {
+      if (!v || !Array.isArray(v.players) || v.players.length < 2 || v.players.length > 4) return null;
+      const n = v.players.length;
+      if (!isInt(v.seat, 0, n - 1) || !isInt(v.cur, 0, n - 1) || !isInt(v.round, 0, 100000)) return null;
+      if (v.dir !== 1 && v.dir !== -1) return null;
+      if (COLORS.indexOf(v.color) < 0) return null;
+      if (['turn', 'drawn', 'over'].indexOf(v.phase) < 0) return null;
+      if (!isInt(v.pending, 0, 108) || !isInt(v.drawCount, 0, 108)) return null;
+      if (v.pendingType !== null && v.pendingType !== 'D' && v.pendingType !== 'F') return null;
+      if (!Array.isArray(v.discard) || v.discard.length < 1 || v.discard.length > 3) return null;
+      const discard = v.discard.map(cleanCard);
+      if (discard.some(c => !c)) return null;
+      let k = 0;
+      const ph = (cnt) => Array.from({ length: cnt }, () => ({ id: 1000 + k++, c: 'r', v: '0' }));
+      const players = v.players.map((p, i) => {
+        if (!p || !isInt(p.count, 0, 108) || !isInt(p.score, 0, 1000000)) return null;
+        let hand;
+        if (Array.isArray(p.hand)) {
+          hand = p.hand.map(cleanCard);
+          if (hand.some(c => !c)) return null;
+        } else hand = ph(p.count);
+        return { name: cleanStr(p.name, 14) || 'Spieler ' + (i + 1), human: !!p.human, score: p.score, hand };
+      });
+      if (players.some(p => !p)) return null;
+      const target = isInt(v.cfg && v.cfg.target, 0, 100000) ? v.cfg.target : 0;
+      const winner = v.winner === null ? null : (isInt(v.winner, 0, n - 1) ? v.winner : undefined);
+      const gameWinner = v.gameWinner === null ? null : (isInt(v.gameWinner, 0, n - 1) ? v.gameWinner : undefined);
+      if (winner === undefined || gameWinner === undefined) return null;
+      return {
+        cfg: { stack: !!(v.cfg && v.cfg.stack), target },
+        players, draw: ph(v.drawCount), discard,
+        dir: v.dir, cur: v.cur, color: v.color, pending: v.pending, pendingType: v.pendingType,
+        phase: v.phase, drawnId: isInt(v.drawnId, 0, 107) ? v.drawnId : null,
+        uno: players.map((_, i) => i === v.seat && !!(v.uno && v.uno[i])),
+        round: v.round, winner, roundPoints: isInt(v.roundPoints, 0, 100000) ? v.roundPoints : 0, gameWinner,
+        log: Array.isArray(v.log) ? v.log.slice(-3).map(s => cleanStr(s, 140)) : [],
+        seat: v.seat
+      };
+    } catch (e) { return null; }
+  }
+
   return { COLORS, COLOR_NAMES, makeDeck, shuffle, cardLabel, points, topCard, nextIdx, canPlay, legalIds, whyNot,
-           newGame, nextRound, startRound, play, draw, pass, callUno, botChoose, drawN };
+           newGame, nextRound, startRound, play, draw, pass, callUno, botChoose, drawN, makeView, stateFromView };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Engine;
 /*ENGINE-END*/
+
+/*LOG-START*/
+/* Lokales Protokoll: bleibt im Browser dieses Geräts (localStorage), wird nirgends hingeschickt.
+   Einträge älter als 48 Stunden werden beim Laden und bei jedem Schreiben gelöscht. */
+const GameLog = (function () {
+  'use strict';
+  const KEY = 'uno-protokoll';
+  const MAX_AGE = 48 * 60 * 60 * 1000;
+  const MAX_ENTRIES = 3000;
+
+  function create(storage, now, defer) {
+    const later = defer || ((fn) => setTimeout(fn, 400));
+    let entries = [];
+    let queued = false;
+
+    function prune(list) {
+      const cut = now() - MAX_AGE;
+      let out = list.filter((e) => e && typeof e.t === 'number' && typeof e.m === 'string' && e.t >= cut);
+      if (out.length > MAX_ENTRIES) out = out.slice(out.length - MAX_ENTRIES);
+      return out;
+    }
+    function write() {
+      const s = JSON.stringify(entries);
+      try { storage.setItem(KEY, s); return true; } catch (e) { return false; }
+    }
+    function flush() {
+      queued = false;
+      // Mit dem gespeicherten Stand zusammenführen, damit mehrere Tabs sich nicht gegenseitig überschreiben
+      try {
+        const disk = JSON.parse(storage.getItem(KEY) || '[]');
+        if (Array.isArray(disk)) {
+          const seen = new Set(entries.map((e) => e.t + '|' + e.m));
+          const extra = disk.filter((e) => e && typeof e.t === 'number' && typeof e.m === 'string' && !seen.has(e.t + '|' + e.m));
+          if (extra.length) entries = entries.concat(extra).sort((a, b) => a.t - b.t);
+        }
+      } catch (e) { /* gespeicherter Stand unlesbar: eigener Stand gilt */ }
+      entries = prune(entries);
+      if (!write()) {                       // Speicher voll: älteste Hälfte verwerfen
+        entries = entries.slice(Math.floor(entries.length / 2));
+        write();
+      }
+    }
+    try {
+      const raw = storage.getItem(KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      entries = Array.isArray(arr) ? prune(arr) : [];
+      if (!Array.isArray(arr) || entries.length !== arr.length) write();
+    } catch (e) { entries = []; }
+
+    return {
+      add(msg) {
+        entries.push({ t: now(), m: String(msg).slice(0, 400) });
+        if (!queued) { queued = true; later(flush); }
+      },
+      flush,
+      clear() { entries = []; queued = false; write(); },
+      count() { return entries.length; },
+      entries() { return entries.slice(); },
+      text() {
+        entries = prune(entries);
+        const head = '# Uno-Protokoll (nur die letzten 48 Stunden), ' + entries.length + ' Einträge\n';
+        return head + entries.map((e) => new Date(e.t).toISOString() + '  ' + e.m).join('\n') + '\n';
+      }
+    };
+  }
+  return { create, KEY, MAX_AGE, MAX_ENTRIES };
+})();
+if (typeof module !== 'undefined' && module.exports) module.exports = GameLog;
+/*LOG-END*/
 
 (function () {
   'use strict';
@@ -639,6 +812,25 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Engine;
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const rng = Math.random;
   const CN = Engine.COLOR_NAMES;
+
+  /* ---------- Lokales Protokoll (max. 48 Stunden, nur auf diesem Gerät) ---------- */
+  const logStore = (function () {
+    try { const s = window.localStorage; s.getItem('x'); return s; }
+    catch (e) { return { getItem: () => null, setItem: () => { throw new Error('kein Speicher'); } }; }
+  })();
+  const Log = GameLog.create(logStore, Date.now);
+  const tabId = Math.random().toString(36).slice(2, 5);   // unterscheidet mehrere Tabs auf demselben Gerät
+  const log = (m) => { try { Log.add('[' + tabId + '] ' + m); } catch (e) { /* Protokoll darf das Spiel nie stören */ } };
+  window.unoLog = { text: () => Log.text(), clear: () => Log.clear(), count: () => Log.count(), flush: () => Log.flush() };
+  window.addEventListener('error', (e) => log('FEHLER ' + (e.message || '') + ' @' + String(e.filename || '').split('/').pop() + ':' + (e.lineno || '?')));
+  window.addEventListener('unhandledrejection', (e) => log('FEHLER (Promise) ' + String(e.reason && e.reason.message || e.reason)));
+  window.addEventListener('pagehide', () => Log.flush());
+  document.addEventListener('visibilitychange', () => { log('Sichtbarkeit: ' + document.visibilityState); if (document.visibilityState === 'hidden') Log.flush(); });
+  let botPendingGen = -1;    // Generation, für die gerade ein Bot-Zug eingeplant ist
+  let lastProgress = Date.now();
+  let lastViewAt = Date.now();
+  let stallLogged = 0;
+  log('Seite geladen');
   const ORDER_V = { '0': 0, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, S: 10, R: 11, D: 12, W: 13, F: 14 };
   const ORDER_C = { r: 0, y: 1, g: 2, b: 3, w: 4 };
 
@@ -675,6 +867,8 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Engine;
   let flashTimer = null;
   let pickId = null;
   let endShown = false;
+  let net = null;        // Online-Verbindung (Host oder Client), null = lokales Spiel
+  const onlineGame = () => !!(net && net.started);
 
   /* ---------- Karten zeichnen ---------- */
   function svgIcon(kind) {
@@ -702,6 +896,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Engine;
   /* ---------- Hilfen ---------- */
   function humans() { return S.players.map((p, i) => p.human ? i : -1).filter((i) => i >= 0); }
   function owner() {
+    if (onlineGame()) return net.seat;
     const h = humans();
     if (h.length === 1) return h[0];
     if (h.length > 1 && S.players[S.cur].human && viewer === S.cur && S.phase !== 'over') return S.cur;
@@ -727,14 +922,23 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Engine;
     const my = gen;
     setTimeout(function tick() {
       if (my !== gen) return;
-      if (anyOverlay()) { setTimeout(tick, 300); return; }
+      if (!onlineGame() && anyOverlay()) { setTimeout(tick, 300); return; }
       fn();
     }, delay);
   }
 
+  function snap() {
+    if (!S) return 'kein Zustand';
+    const where = net ? net.role + '/' + (net.started ? 'Spiel' : net.phase) : 'lokal';
+    const dlg = Array.prototype.map.call(document.querySelectorAll('.overlay:not([hidden])'), (o) => o.id.replace('ov-', '')).join(',');
+    return 'r' + S.round + ' cur=' + S.cur + ' ph=' + S.phase + ' pend=' + S.pending + ' dir=' + S.dir + ' stapel=' + S.draw.length +
+      ' hände=[' + S.players.map((p) => p.hand.length + (p.human ? 'M' : 'B')).join(',') + '] ' + where +
+      ' gen=' + gen + ' botWartet=' + (botPendingGen === gen) + ' endShown=' + endShown + ' dialoge=[' + dlg + ']';
+  }
+
   /* ---------- Rendern ---------- */
   function renderTop() {
-    $('#roundinfo').textContent = 'Runde ' + S.round + (S.cfg.target > 0 ? ', Ziel ' + S.cfg.target + ' Punkte' : '');
+    $('#roundinfo').textContent = 'Runde ' + S.round + (S.cfg.target > 0 ? ', Ziel ' + S.cfg.target + ' Punkte' : '') + (onlineGame() && net.code ? ', Raum ' + net.code : '');
   }
 
   function renderOpps(own) {
@@ -799,7 +1003,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Engine;
       if (!p.human) msg = p.name + ' überlegt …';
       else if (S.phase === 'drawn') msg = p.name + ': Gezogene Karte spielen oder passen.';
       else if (S.pending > 0) msg = p.name + ': +' + S.pending + ' stapeln oder ' + S.pending + ' Karten ziehen.';
-      else msg = p.name + ' ist dran.';
+      else msg = (onlineGame() && S.cur === net.seat ? 'Du bist' : p.name + ' ist') + ' dran.';
     }
     el.textContent = msg;
     el.classList.toggle('warn', warn);
@@ -880,7 +1084,10 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Engine;
 
   /* ---------- Ablauf ---------- */
   function proceed() {
+    lastProgress = Date.now();
+    log('proceed ' + snap());
     render();
+    broadcastViews();
     if (S.phase === 'over') {
       if (!endShown) {
         endShown = true;
@@ -891,10 +1098,11 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Engine;
     const p = S.cur;
     const pl = S.players[p];
     if (!pl.human) {
+      botPendingGen = gen;
       schedule(botTurn, S.phase === 'drawn' ? 700 : 1050);
       return;
     }
-    if (humans().length > 1 && viewer !== p) {
+    if (!onlineGame() && humans().length > 1 && viewer !== p) {
       $('#cover-title').textContent = 'Gerät an ' + pl.name + ' geben';
       const o = show('#ov-cover');
       focusFirst(o);
@@ -902,9 +1110,11 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Engine;
   }
 
   function botTurn() {
+    botPendingGen = -1;
     const p = S.cur;
-    if (S.phase === 'over' || S.players[p].human) return;
+    if (S.phase === 'over' || S.players[p].human) { log('botTurn übersprungen: ' + snap()); return; }
     const ch = Engine.botChoose(S, p, rng);
+    log('bot seat=' + p + ' ' + ch.action + (ch.id !== undefined ? ' id=' + ch.id : ''));
     if (ch.action === 'play') {
       if (S.players[p].hand.length === 2 && rng() < 0.9) Engine.callUno(S, p);
       Engine.play(S, p, ch.id, ch.color, rng);
@@ -914,6 +1124,8 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Engine;
   }
 
   function startGame() {
+    if (net) closeNet();
+    log('Lokales Spiel gestartet');
     gen++;
     endShown = false;
     viewer = -1;
@@ -941,8 +1153,10 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Engine;
 
   /* ---------- Eingaben ---------- */
   function humanPlay(id, color) {
+    if (net && net.role === 'client') { netSend(net.hostConn, { t: 'act', a: 'play', id, color }); return; }
     const p = S.cur;
     const r = Engine.play(S, p, id, color, rng);
+    log('Eigene Aktion: play id=' + id + (color ? ' farbe=' + color : '') + ' -> ' + (r.ok ? 'ok' : 'abgelehnt: ' + r.reason));
     if (!r.ok) { flash(r.reason); return; }
     flashMsg = '';
     proceed();
@@ -958,6 +1172,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Engine;
     const card = S.players[own].hand.find((c) => c.id === id);
     if (!card) return;
     if (!Engine.canPlay(S, own, card)) {
+      log('Karte angetippt, nicht spielbar id=' + id + ': ' + Engine.whyNot(S, own, card));
       b.classList.remove('shake');
       void b.offsetWidth;
       b.classList.add('shake');
@@ -986,7 +1201,9 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Engine;
   $('#drawpile').addEventListener('click', () => {
     const own = owner();
     if (own === null || own !== S.cur || S.phase !== 'turn') return;
+    if (net && net.role === 'client') { netSend(net.hostConn, { t: 'act', a: 'draw' }); return; }
     const r = Engine.draw(S, own, rng);
+    log('Eigene Aktion: draw -> ' + (r.ok ? (r.canPlayDrawn ? 'ok, gezogene Karte spielbar id=' + r.drawn.id : r.drawn ? 'ok, passt nicht' : 'ok') : 'abgelehnt'));
     if (!r.ok) return;
     if (r.canPlayDrawn) flash('Du hast ' + Engine.cardLabel(r.drawn) + ' gezogen. Spielen oder passen.');
     else if (r.drawn) flash('Gezogen: ' + Engine.cardLabel(r.drawn) + '. Passt nicht, du passt.');
@@ -996,13 +1213,20 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Engine;
   $('#btn-pass').addEventListener('click', () => {
     const own = owner();
     if (own === null) return;
-    if (Engine.pass(S, own).ok) { flashMsg = ''; proceed(); }
+    if (net && net.role === 'client') { netSend(net.hostConn, { t: 'act', a: 'pass' }); return; }
+    const pr = Engine.pass(S, own);
+    log('Eigene Aktion: pass -> ' + (pr.ok ? 'ok' : 'abgelehnt'));
+    if (pr.ok) { flashMsg = ''; proceed(); }
   });
 
   $('#btn-uno').addEventListener('click', () => {
     const own = owner();
     if (own === null) return;
-    if (Engine.callUno(S, own)) render();
+    if (net && net.role === 'client') {
+      if (own === S.cur && S.players[own].hand.length === 2) { S.uno[own] = true; render(); netSend(net.hostConn, { t: 'act', a: 'uno' }); }
+      return;
+    }
+    if (Engine.callUno(S, own)) { render(); broadcastViews(); }
   });
 
   $('#cover-go').addEventListener('click', () => {
@@ -1013,6 +1237,8 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Engine;
 
   /* ---------- Rundenende ---------- */
   function showEnd() {
+    if (!S || S.phase !== 'over' || S.winner === null) { log('showEnd verworfen: ' + snap()); return; }
+    log('Rundenende angezeigt, Sieger seat=' + S.winner);
     const w = S.players[S.winner];
     const game = S.gameWinner !== null;
     const single = S.cfg.target === 0;
@@ -1022,16 +1248,23 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Engine;
     $('#end-table').innerHTML = '<tr><th scope="col">Spieler</th><th scope="col" class="n">Restkarten</th><th scope="col" class="n">Punkte</th></tr>' +
       rows.map((r) => '<tr' + (r.i === S.winner ? ' class="win"' : '') + '><td>' + esc(r.p.name) + '</td><td class="n">' + r.p.hand.length + '</td><td class="n">' + r.p.score + '</td></tr>').join('');
     const actions = $('#end-actions');
-    if (game || single) {
-      actions.innerHTML = '<button class="btn quiet" type="button" id="end-settings">Einstellungen</button><button class="btn" type="button" id="end-again">' + (single ? 'Noch eine Runde' : 'Neues Spiel') + '</button>';
-      $('#end-again').addEventListener('click', startGame);
-      $('#end-settings').addEventListener('click', () => { hide('#ov-end'); openSetup(); });
+    if (net && net.role === 'client') {
+      actions.innerHTML = '<p class="muted">' + (game || single ? 'Der Host startet das nächste Spiel.' : 'Warte auf den Host …') + '</p>';
+    } else if (game || single) {
+      const onl = onlineGame();
+      actions.innerHTML = (onl ? '' : '<button class="btn quiet" type="button" id="end-settings">Einstellungen</button>') + '<button class="btn" type="button" id="end-again">' + (single ? 'Noch eine Runde' : 'Neues Spiel') + '</button>';
+      $('#end-again').addEventListener('click', onl ? startOnlineGame : startGame);
+      if (!onl) $('#end-settings').addEventListener('click', () => { hide('#ov-end'); openSetup(); });
     } else {
       actions.innerHTML = '<button class="btn" type="button" id="end-next">Nächste Runde</button>';
       $('#end-next').addEventListener('click', nextRound);
     }
+    if (onlineGame()) {
+      actions.insertAdjacentHTML('beforeend', '<button class="btn quiet" type="button" id="end-leave">Raum verlassen</button>');
+      $('#end-leave').addEventListener('click', () => { hide('#ov-end'); leaveOnline(); });
+    }
     const o = show('#ov-end');
-    focusFirst(o, '.btn:last-child');
+    focusFirst(o, '#end-again, #end-next, #end-leave');
   }
 
   /* ---------- Neues Spiel (Einstellungen) ---------- */
@@ -1085,23 +1318,518 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Engine;
     startGame();
   });
   $('#setup-cancel').addEventListener('click', () => hide('#ov-setup'));
-  $('#btn-new').addEventListener('click', openSetup);
+  $('#btn-new').addEventListener('click', () => {
+    if (onlineGame() && !confirm('Das Online-Spiel verlassen und ein lokales Spiel einrichten?')) return;
+    openSetup();
+  });
 
   /* ---------- Regeln ---------- */
-  $('#btn-rules').addEventListener('click', () => { const o = show('#ov-rules'); focusFirst(o); });
+  const logInfo = () => { $('#log-info').textContent = 'Fehlerprotokoll: ' + Log.count() + ' Einträge. Es bleibt auf diesem Gerät, Einträge älter als 48 Stunden werden automatisch gelöscht.'; };
+  $('#btn-rules').addEventListener('click', () => { logInfo(); const o = show('#ov-rules'); focusFirst(o, '#rules-close'); });
+  $('#log-dl').addEventListener('click', () => {
+    Log.flush();
+    const url = URL.createObjectURL(new Blob([Log.text()], { type: 'text/plain;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = 'uno-protokoll.txt';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  });
+  $('#log-clear').addEventListener('click', () => { Log.clear(); logInfo(); });
   $('#rules-close').addEventListener('click', () => hide('#ov-rules'));
 
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     if (!$('#ov-rules').hidden) hide('#ov-rules');
     else if (!$('#ov-color').hidden) { pickId = null; hide('#ov-color'); }
+    else if (!$('#ov-online').hidden && !(net && (net.phase === 'lost' || net.phase === 'connecting'))) hide('#ov-online');
     else if (!$('#ov-setup').hidden && S) hide('#ov-setup');
   });
 
   window.addEventListener('resize', () => { if (S) layoutHand(); });
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (S) layoutHand(); });
 
+  /* ================= Online-Mehrspieler =================
+     Host-autoritativ: Der Host führt das Spiel mit der Engine aus. Clients schicken nur Aktionen
+     (spielen, ziehen, passen, Uno) und bekommen vom Host ihre persönliche Sicht (eigene Karten,
+     von den anderen nur die Anzahl). Die Verbindung läuft direkt zwischen den Browsern (WebRTC).
+     PeerJS vermittelt nur den Verbindungsaufbau. */
+  const PEER_SRC = [
+    'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js',
+    'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js'
+  ];
+  const ROOM_PREFIX = 'unoamtisch-';
+  const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const BOT_NAMES = ['Mia', 'Ben', 'Zoe', 'Leo', 'Eva', 'Tim'];
+  let panelError = '';
+  let panelCopied = false;
+  let panelCode = '';   // zuletzt eingegebener Raumcode, bleibt nach Fehlern im Feld stehen
+
+  const clean = (s, n) => String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, n);
+  const randomCode = () => Array.from({ length: 5 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
+  const validCode = (c) => /^[A-HJ-NP-Z2-9]{5}$/.test(c);
+  const savedName = () => { try { return localStorage.getItem('uno-online-name') || ''; } catch (e) { return ''; } };
+  const saveName = (n) => { try { localStorage.setItem('uno-online-name', n); } catch (e) { /* egal */ } };
+  const inviteLink = (code) => location.href.split(/[?#]/)[0] + '?raum=' + code;
+
+  function netSend(conn, msg) {
+    try {
+      if (conn && conn.open) conn.send(msg);
+      else if (conn) log('Senden nicht möglich (Verbindung zu) t=' + (msg && msg.t));
+    } catch (e) { log('Senden fehlgeschlagen t=' + (msg && msg.t) + ': ' + e.message); }
+  }
+
+  function loadPeerLib() {
+    if (window.Peer) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      let i = 0;
+      const next = () => {
+        if (i >= PEER_SRC.length) { reject(new Error('Die Online-Bibliothek konnte nicht geladen werden. Bist du mit dem Internet verbunden?')); return; }
+        const s = document.createElement('script');
+        s.src = PEER_SRC[i++];
+        s.onload = () => (window.Peer ? resolve() : next());
+        s.onerror = () => { s.remove(); next(); };
+        document.head.appendChild(s);
+      };
+      next();
+    });
+  }
+
+  function peerOptions() {
+    const opts = { debug: 0 };
+    // Eigener Vermittlungsserver: ?broker=host:port (nur für Selbsthoster und Tests)
+    const b = new URLSearchParams(location.search).get('broker');
+    if (b && /^[\w.-]+:\d{2,5}$/.test(b)) {
+      const parts = b.split(':');
+      opts.host = parts[0]; opts.port = Number(parts[1]); opts.path = '/'; opts.secure = false;
+    }
+    return opts;
+  }
+
+  function errText(err) {
+    const t = err && err.type;
+    if (t === 'peer-unavailable') return 'Raum nicht gefunden. Prüfe den Code. Der Host muss die Seite geöffnet lassen.';
+    if (t === 'network' || t === 'server-error' || t === 'socket-error' || t === 'socket-closed') return 'Keine Verbindung zum Vermittlungsserver. Prüfe dein Internet und versuche es nochmal.';
+    if (t === 'browser-incompatible') return 'Dieser Browser unterstützt keine Direktverbindungen (WebRTC).';
+    return (err && err.message) ? clean(err.message, 160) : 'Verbindung fehlgeschlagen.';
+  }
+
+  function closeNet() {
+    if (!net) return;
+    log('Online beendet (' + net.role + ', Phase ' + net.phase + ')');
+    const n = net;
+    net = null;
+    n.closing = true;
+    if (n.slots) n.slots.forEach((s) => { if (s.conn) netSend(s.conn, { t: 'closed' }); });
+    const kill = () => {
+      try { if (n.hostConn) n.hostConn.close(); } catch (e) { /* egal */ }
+      try { if (n.peer) n.peer.destroy(); } catch (e) { /* egal */ }
+    };
+    if (n.role === 'host') setTimeout(kill, 300); else kill();
+  }
+
+  function netError(msg) {
+    log('Online-Fehler: ' + msg);
+    closeNet();
+    panelError = msg;
+    renderOnline();
+  }
+
+  /* ---------- Host ---------- */
+  async function hostCreate(name) {
+    closeNet();
+    panelError = '';
+    log('Host: Raum wird erstellt');
+    const my = net = {
+      role: 'host', name, code: '', peer: null, started: false, phase: 'connecting', seat: 0,
+      slots: [{ name, kind: 'host', conn: null }], cfg: { target: cfg.target, stack: !!cfg.stack }
+    };
+    renderOnline();
+    try { await loadPeerLib(); } catch (e) { if (net === my) netError(e.message); return; }
+    if (net === my) openHostPeer(my, 0);
+  }
+
+  function openHostPeer(my, tries) {
+    const code = randomCode();
+    const peer = new window.Peer(ROOM_PREFIX + code, peerOptions());
+    my.peer = peer;
+    peer.on('open', () => { if (net !== my) return; my.code = code; my.phase = 'lobby'; log('Host: Raum ' + code + ' offen'); renderOnline(); });
+    peer.on('error', (err) => {
+      if (net !== my || my.peer !== peer) return;
+      if (err && err.type === 'unavailable-id' && tries < 5) { try { peer.destroy(); } catch (e) { /* egal */ } openHostPeer(my, tries + 1); return; }
+      netError(errText(err));
+    });
+    peer.on('disconnected', () => { if (net === my && !my.closing) { log('Host: Vermittlungsserver getrennt, verbinde neu'); try { peer.reconnect(); } catch (e) { /* egal */ } } });
+    peer.on('connection', (conn) => onHostConn(my, conn));
+  }
+
+  function onHostConn(my, conn) {
+    const idx = () => my.slots.findIndex((s) => s.conn === conn);
+    let greeted = false;
+    conn.on('data', (m) => {
+      if (net !== my || !m || typeof m !== 'object') return;
+      if (m.t === 'hello' && !greeted) { greeted = true; hostAccept(my, conn, clean(m.name, 14)); return; }
+      const i = idx();
+      if (i >= 0 && m.t === 'act') onRemoteAct(i, m);
+    });
+    const gone = () => { if (net === my) { const i = idx(); if (i >= 0) hostDrop(my, i); } };
+    conn.on('close', gone);
+    conn.on('error', gone);
+  }
+
+  function refuse(conn, msg) {
+    log('Host: Beitritt abgelehnt (' + msg + ')');
+    netSend(conn, { t: 'error', msg });
+    setTimeout(() => { try { conn.close(); } catch (e) { /* egal */ } }, 400);
+  }
+
+  function hostAccept(my, conn, name) {
+    if (my.started) {
+      const i = my.slots.findIndex((s) => s.kind === 'remote' && s.dropped && s.name === name);
+      if (i < 0) { refuse(conn, 'Das Spiel läuft bereits.'); return; }
+      my.slots[i].conn = conn;
+      my.slots[i].dropped = false;
+      S.players[i].human = true;
+      log('Host: Platz ' + i + ' wieder verbunden');
+      render();
+      broadcastViews();
+      return;
+    }
+    if (my.slots.length >= 4) { refuse(conn, 'Der Raum ist voll.'); return; }
+    const base = name || 'Gast';
+    let nm = base, k = 2;
+    while (my.slots.some((s) => s.name === nm)) nm = base.slice(0, 11) + ' ' + k++;
+    my.slots.push({ name: nm, kind: 'remote', conn, dropped: false });
+    log('Host: Gast beigetreten, Platz ' + (my.slots.length - 1));
+    sendLobbies(my);
+  }
+
+  function hostDrop(my, i) {
+    const sl = my.slots[i];
+    log('Host: Verbindung zu Platz ' + i + ' verloren (' + (my.started ? 'im Spiel' : 'Lobby') + ')');
+    if (!my.started) { my.slots.splice(i, 1); sendLobbies(my); return; }
+    sl.conn = null;
+    sl.dropped = true;
+    S.players[i].human = false; // der Platz wird von einem Bot übernommen, bis die Person zurückkommt
+    if (S.cur === i && S.phase !== 'over') proceed(); else { render(); broadcastViews(); }
+  }
+
+  function sendLobbies(my) {
+    const slots = my.slots.map((s) => ({ name: s.name, kind: s.kind }));
+    my.slots.forEach((s, i) => { if (s.conn) netSend(s.conn, { t: 'lobby', slots, you: i, cfg: my.cfg, code: my.code }); });
+    renderOnline();
+  }
+
+  function broadcastViews() {
+    if (!net || net.role !== 'host' || !net.started || !S) return;
+    net.seq = (net.seq || 0) + 1;
+    net.slots.forEach((sl, i) => { if (sl.conn) netSend(sl.conn, { t: 'view', n: net.seq, v: Engine.makeView(S, i) }); });
+  }
+
+  function hostStart() {
+    const my = net;
+    if (!my || my.role !== 'host' || my.started || my.slots.length < 2) return;
+    my.started = true;
+    my.phase = 'game';
+    log('Host: Online-Spiel startet mit ' + my.slots.length + ' Plätzen');
+    hide('#ov-online');
+    startOnlineGame();
+  }
+
+  function startOnlineGame() {
+    gen++;
+    endShown = false;
+    viewer = -1;
+    lastTopId = null;
+    flashMsg = '';
+    const players = net.slots.map((s) => ({ name: s.name, human: s.kind !== 'bot' && !s.dropped }));
+    S = Engine.newGame({ players, stack: net.cfg.stack, target: net.cfg.target }, rng);
+    ['#ov-setup', '#ov-cover', '#ov-color', '#ov-end', '#ov-rules'].forEach(hide);
+    proceed();
+  }
+
+  function onRemoteAct(seat, m) {
+    if (!S || !net || net.role !== 'host' || !net.started) return;
+    const conn = net.slots[seat] && net.slots[seat].conn;
+    const say = (msg) => netSend(conn, { t: 'flash', msg });
+    log('Aktion von Platz ' + seat + ': ' + String(m.a).slice(0, 8) + (m.id !== undefined ? ' id=' + m.id : '') + ' | cur=' + S.cur + ' ph=' + S.phase);
+    switch (m.a) {
+      case 'play': {
+        if (!Number.isInteger(m.id)) return;
+        const r = Engine.play(S, seat, m.id, typeof m.color === 'string' ? m.color : null, rng);
+        if (!r.ok) { log('  abgelehnt: ' + r.reason); say(r.reason); return; }
+        break;
+      }
+      case 'draw': {
+        const r = Engine.draw(S, seat, rng);
+        if (!r.ok) { log('  Ziehen abgelehnt'); return; }
+        if (r.canPlayDrawn) say('Du hast ' + Engine.cardLabel(r.drawn) + ' gezogen. Spielen oder passen.');
+        else if (r.drawn) say('Gezogen: ' + Engine.cardLabel(r.drawn) + '. Passt nicht, du passt.');
+        break;
+      }
+      case 'pass':
+        if (!Engine.pass(S, seat).ok) { log('  Passen abgelehnt'); return; }
+        break;
+      case 'uno':
+        if (Engine.callUno(S, seat)) broadcastViews();
+        return;
+      default:
+        return;
+    }
+    proceed();
+  }
+
+  /* ---------- Client ---------- */
+  async function clientJoin(code, name) {
+    closeNet();
+    panelError = '';
+    log('Client: tritt Raum ' + code + ' bei');
+    const my = net = { role: 'client', name, code, peer: null, hostConn: null, started: false, phase: 'connecting', seat: 0, slots: [], cfg: { target: 0, stack: false }, you: -1 };
+    renderOnline();
+    try { await loadPeerLib(); } catch (e) { if (net === my) netError(e.message); return; }
+    if (net === my) connectClient(my);
+  }
+
+  function connectClient(my) {
+    const peer = new window.Peer(peerOptions());
+    my.peer = peer;
+    peer.on('open', () => {
+      if (net !== my || my.peer !== peer) return;
+      const conn = peer.connect(ROOM_PREFIX + my.code, { reliable: true, serialization: 'json' });
+      my.hostConn = conn;
+      const timer = setTimeout(() => { if (net === my && my.hostConn === conn && my.phase === 'connecting') netError('Der Host antwortet nicht. Kommt ihr eventuell nicht direkt miteinander ins Netz (Firmen- oder Mobilfunknetz)?'); }, 20000);
+      conn.on('open', () => { clearTimeout(timer); log('Client: Verbindung zum Host offen'); if (net === my && my.hostConn === conn) netSend(conn, { t: 'hello', name: my.name }); });
+      conn.on('data', (m) => { if (my.hostConn === conn) onClientMsg(my, m); });
+      const gone = () => { clearTimeout(timer); if (net === my && my.hostConn === conn) onClientClosed(my); };
+      conn.on('close', gone);
+      conn.on('error', gone);
+    });
+    peer.on('error', (err) => { if (net === my && my.peer === peer) netError(errText(err)); });
+  }
+
+  function onClientMsg(my, m) {
+    if (net !== my || !m || typeof m !== 'object') return;
+    switch (m.t) {
+      case 'lobby': {
+        if (my.started || !Array.isArray(m.slots)) return;
+        my.slots = m.slots.slice(0, 4).map((s) => ({ name: clean(s && s.name, 14), kind: ['host', 'remote', 'bot'].indexOf(s && s.kind) >= 0 ? s.kind : 'remote' }));
+        my.you = Number.isInteger(m.you) ? m.you : -1;
+        if (my.slots[my.you]) my.name = my.slots[my.you].name; // ggf. vom Host umbenannt, wird fürs Wiederverbinden gebraucht
+        my.cfg = { target: Number(m.cfg && m.cfg.target) || 0, stack: !!(m.cfg && m.cfg.stack) };
+        my.phase = 'lobby';
+        renderOnline();
+        break;
+      }
+      case 'view':
+        if (Number.isInteger(m.n)) {
+          if (my.lastN && m.n !== my.lastN + 1) log('LÜCKE in der Nachrichtenfolge: erwartet ' + (my.lastN + 1) + ', erhalten ' + m.n);
+          my.lastN = m.n;
+        }
+        applyView(my, m.v);
+        break;
+      case 'flash': if (typeof m.msg === 'string') flash(clean(m.msg, 160)); break;
+      case 'error': netError(clean(m.msg, 160) || 'Der Host hat die Verbindung abgelehnt.'); break;
+      case 'closed': {
+        const was = my.started;
+        my.closing = true;
+        if (was) { my.phase = 'lost'; panelError = 'Der Host hat den Raum geschlossen.'; renderOnline(); } else netError('Der Host hat den Raum geschlossen.');
+        break;
+      }
+      default:
+    }
+  }
+
+  function onClientClosed(my) {
+    log('Client: Verbindung zum Host geschlossen (' + (my.closing ? 'gewollt' : 'unerwartet') + ', Spiel=' + my.started + ')');
+    if (my.closing) return;
+    if (my.started) { my.phase = 'lost'; panelError = ''; renderOnline(); } else netError('Die Verbindung zum Host wurde getrennt.');
+  }
+
+  function applyView(my, v) {
+    const ns = Engine.stateFromView(v);
+    if (!ns) { let raw = ''; try { raw = JSON.stringify(v).slice(0, 240); } catch (e) { raw = '?'; } log('ANSICHT ABGELEHNT: ' + raw); return; }
+    lastViewAt = lastProgress = Date.now();
+    const first = !my.started;
+    const fresh = first || !S || S.round !== ns.round || (S.phase === 'over' && ns.phase !== 'over');
+    my.started = true;
+    my.phase = 'game';
+    my.seat = ns.seat;
+    if (first) {
+      gen++;
+      viewer = -1;
+      ['#ov-setup', '#ov-cover', '#ov-color', '#ov-end', '#ov-rules'].forEach(hide);
+    }
+    if (fresh) { endShown = false; hide('#ov-end'); lastTopId = null; flashMsg = ''; }
+    if (first || my.hideOnView) { hide('#ov-online'); my.hideOnView = false; }
+    S = ns;
+    log('Ansicht n=' + (my.lastN || '?') + ' ' + (first ? '[erste] ' : '') + (fresh ? '[neue Runde] ' : '') + snap());
+    render();
+    if (S.phase === 'over' && !endShown) { endShown = true; schedule(showEnd, 900); }
+  }
+
+  function reconnect() {
+    const my = net;
+    if (!my || my.role !== 'client') return;
+    try { if (my.peer) my.peer.destroy(); } catch (e) { /* egal */ }
+    my.hostConn = null;
+    log('Client: verbinde neu');
+    my.closing = false;
+    my.lastN = 0;
+    my.hideOnView = true;
+    my.phase = 'connecting';
+    panelError = '';
+    renderOnline();
+    connectClient(my);
+  }
+
+  function leaveOnline() {
+    const wasGame = onlineGame();
+    closeNet();
+    panelError = '';
+    hide('#ov-online');
+    if (wasGame) startGame(); // zurück ins lokale Spiel
+  }
+
+  /* ---------- Online-Dialog ---------- */
+  function slotRows(my, host) {
+    let rows = '';
+    my.slots.forEach((s, i) => {
+      const tag = s.kind === 'bot' ? 'Bot' : s.kind === 'host' ? 'Host' : 'Online';
+      const you = (host ? i === 0 : i === my.you) ? ' (du)' : '';
+      const x = host && i > 0 ? '<button class="x" type="button" data-act="rm" data-i="' + i + '" aria-label="' + esc(s.name) + ' entfernen">✕</button>' : '';
+      rows += '<li class="slotrow"><span class="nm">' + esc(s.name) + esc(you) + '</span><span class="tag">' + tag + '</span>' + x + '</li>';
+    });
+    for (let i = my.slots.length; i < 4; i++) rows += '<li class="slotrow empty">Platz frei</li>';
+    return '<ul class="slots">' + rows + '</ul>';
+  }
+
+  function renderOnline() {
+    const o = $('#online-panel');
+    let html;
+    const err = panelError ? '<p class="errbox" role="alert">' + esc(panelError) + '</p>' : '';
+    if (!net) {
+      const q = new URLSearchParams(location.search).get('raum');
+      const pre = panelCode || (q ? clean(q, 5).toUpperCase() : '');
+      html = '<h2 id="online-title">Online spielen</h2>' + err +
+        '<p class="muted">Spiele mit Freunden auf mehreren Geräten. Einer erstellt einen Raum, die anderen treten mit dem Code oder Link bei.</p>' +
+        '<label class="field-label" for="on-name">Dein Name<input class="field" type="text" id="on-name" maxlength="14" autocomplete="nickname" value="' + esc(savedName() || cfg.seats[0].name || '') + '"></label>' +
+        '<button class="btn" type="button" data-act="create">Raum erstellen</button>' +
+        '<fieldset><legend>Oder einem Raum beitreten</legend><div class="seat">' +
+        '<input class="field codeinput" type="text" id="on-code" maxlength="5" placeholder="CODE" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Raumcode" value="' + esc(pre) + '">' +
+        '<button class="btn" type="button" data-act="join">Beitreten</button></div></fieldset>' +
+        '<button class="btn quiet" type="button" data-act="close">Zurück</button>';
+    } else if (net.phase === 'connecting') {
+      html = '<h2 id="online-title">Verbinde …</h2><p class="muted" role="status">' + (net.role === 'host' ? 'Raum wird erstellt.' : 'Verbindung zu Raum ' + esc(net.code) + ' wird aufgebaut.') + '</p>' +
+        '<button class="btn quiet" type="button" data-act="leave">Abbrechen</button>';
+    } else if (net.phase === 'lost') {
+      html = '<h2 id="online-title">Verbindung verloren</h2>' + (err || '<p class="errbox" role="alert">Die Verbindung zum Host ist abgebrochen.</p>') +
+        '<p class="muted">Ein Bot spielt deine Karten, bis du wieder drin bist.</p>' +
+        '<div class="row"><button class="btn quiet" type="button" data-act="leave">Spiel verlassen</button><button class="btn" type="button" data-act="reconnect">Neu verbinden</button></div>';
+    } else {
+      const host = net.role === 'host';
+      const link = inviteLink(net.code);
+      const invite = '<div class="linkrow"><input type="text" readonly value="' + esc(link) + '" aria-label="Einladungslink" onfocus="this.select()"><button class="btn quiet small" type="button" data-act="copy">' + (panelCopied ? 'Kopiert' : 'Kopieren') + '</button></div>';
+      if (net.phase === 'game') {
+        html = '<h2 id="online-title">Raum <span class="roomcode">' + esc(net.code) + '</span></h2>' + err + invite +
+          '<div class="row"><button class="btn quiet" type="button" data-act="close">Weiterspielen</button><button class="btn quiet" type="button" data-act="leave">' + (host ? 'Raum schließen' : 'Spiel verlassen') + '</button></div>';
+      } else if (host) {
+        const full = net.slots.length >= 4;
+        const t = [[0, 'Eine Runde'], [200, '200 Punkte'], [500, '500 Punkte']].map((x) => '<button type="button" data-act="target" data-target="' + x[0] + '" aria-pressed="' + (net.cfg.target === x[0]) + '">' + x[1] + '</button>').join('');
+        html = '<h2 id="online-title">Raum <span class="roomcode">' + esc(net.code) + '</span></h2>' + err +
+          '<p class="muted">Schick den Code oder Link weiter. Freie Plätze können Bots füllen.</p>' + invite + slotRows(net, true) +
+          '<button class="btn quiet" type="button" data-act="bot"' + (full ? ' disabled' : '') + '>Bot hinzufügen</button>' +
+          '<fieldset><legend>Spielziel</legend><div class="seg" id="seg-target" role="group" aria-label="Spielziel">' + t + '</div></fieldset>' +
+          '<label class="check" for="on-stack"><input type="checkbox" id="on-stack"' + (net.cfg.stack ? ' checked' : '') + '><span>Strafkarten stapeln<small>+2 auf +2 und +4 auf +4 weitergeben.</small></span></label>' +
+          '<div class="row"><button class="btn quiet" type="button" data-act="leave">Raum schließen</button><button class="btn" type="button" data-act="start"' + (net.slots.length < 2 ? ' disabled' : '') + '>Spiel starten</button></div>' +
+          (net.slots.length < 2 ? '<p class="muted">Du brauchst mindestens eine Mitspielerin oder einen Bot.</p>' : '');
+      } else {
+        html = '<h2 id="online-title">Raum <span class="roomcode">' + esc(net.code) + '</span></h2>' + err + slotRows(net, false) +
+          '<p class="muted">Spielziel: ' + (net.cfg.target > 0 ? net.cfg.target + ' Punkte' : 'eine Runde') + (net.cfg.stack ? ', Strafkarten stapeln' : '') + '.<br>Warte, bis der Host das Spiel startet.</p>' +
+          '<button class="btn quiet" type="button" data-act="leave">Raum verlassen</button>';
+      }
+    }
+    o.innerHTML = html;
+    const ov = $('#ov-online');
+    if (ov.hidden) { ov.hidden = false; focusFirst(ov, 'input, button'); }
+  }
+
+  $('#btn-online').addEventListener('click', () => { panelError = ''; panelCopied = false; renderOnline(); });
+  $('#online-panel').addEventListener('input', (e) => {
+    if (e.target && e.target.id === 'on-code') e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  });
+  $('#online-panel').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target && e.target.id === 'on-code') { e.preventDefault(); const b = $('#online-panel [data-act="join"]'); if (b) b.click(); }
+  });
+  $('#online-panel').addEventListener('change', (e) => {
+    if (e.target && e.target.id === 'on-stack' && net && net.role === 'host') { net.cfg.stack = e.target.checked; sendLobbies(net); }
+  });
+  $('#online-panel').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-act]');
+    if (!b || b.disabled) return;
+    const act = b.dataset.act;
+    if (act === 'close') { hide('#ov-online'); return; }
+    if (act === 'create' || act === 'join') {
+      const name = clean($('#on-name').value, 14) || 'Spieler';
+      if (act === 'join') {
+        const code = clean($('#on-code').value, 5).toUpperCase();
+        panelCode = code;
+        if (!validCode(code)) { panelError = 'Der Code besteht aus 5 Zeichen, zum Beispiel K7M2Q.'; renderOnline(); return; }
+        saveName(name);
+        clientJoin(code, name);
+      } else { saveName(name); hostCreate(name); }
+      return;
+    }
+    if (act === 'leave') { leaveOnline(); return; }
+    if (act === 'reconnect') { reconnect(); return; }
+    if (act === 'copy') {
+      const link = inviteLink(net.code);
+      const done = () => { panelCopied = true; renderOnline(); setTimeout(() => { panelCopied = false; if (net) renderOnline(); }, 1800); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(link).then(done, () => { const i = $('#online-panel .linkrow input'); if (i) i.select(); });
+      else { const i = $('#online-panel .linkrow input'); if (i) i.select(); }
+      return;
+    }
+    if (!net || net.role !== 'host' || net.started) return;
+    if (act === 'bot') {
+      if (net.slots.length >= 4) return;
+      const used = net.slots.map((s) => s.name);
+      const nm = BOT_NAMES.find((n) => used.indexOf(n) < 0) || 'Bot ' + net.slots.length;
+      net.slots.push({ name: nm, kind: 'bot', conn: null });
+      sendLobbies(net);
+    } else if (act === 'rm') {
+      const i = Number(b.dataset.i);
+      const s = net.slots[i];
+      if (!s || i === 0) return;
+      net.slots.splice(i, 1);
+      if (s.conn) { netSend(s.conn, { t: 'error', msg: 'Du wurdest aus dem Raum entfernt.' }); const c = s.conn; setTimeout(() => { try { c.close(); } catch (er) { /* egal */ } }, 300); }
+      sendLobbies(net);
+    } else if (act === 'target') { net.cfg.target = Number(b.dataset.target); sendLobbies(net); }
+    else if (act === 'start') hostStart();
+  });
+
+  // Wächter: meldet im Protokoll, wenn ein Spiel stillzustehen scheint
+  setInterval(() => {
+    if (!S || S.phase === 'over') return;
+    const now = Date.now();
+    const host = !net || net.role === 'host';
+    const idle = now - lastProgress;
+    if (host && !S.players[S.cur].human && idle > 8000 && stallLogged !== lastProgress) {
+      stallLogged = lastProgress;
+      log('STILLSTAND: Bot am Zug seit ' + Math.round(idle / 1000) + ' s (Tab ' + document.visibilityState + '): ' + snap());
+    } else if (host && net && net.started && S.players[S.cur].human && idle > 180000 && stallLogged !== lastProgress) {
+      stallLogged = lastProgress;
+      log('LANGE WARTEZEIT: Mensch seat=' + S.cur + ' seit ' + Math.round(idle / 1000) + ' s: ' + snap());
+    } else if (net && net.role === 'client' && net.started && now - lastViewAt > 60000 && stallLogged !== lastViewAt) {
+      stallLogged = lastViewAt;
+      log('KEINE ANSICHT seit 60 s: ' + snap());
+    }
+  }, 4000);
+
   startGame();
+
+  // Einladungslink ?raum=CODE: Dialog zum Beitreten öffnen
+  (function () {
+    const q = new URLSearchParams(location.search).get('raum');
+    if (q && validCode(clean(q, 5).toUpperCase())) { panelError = ''; renderOnline(); }
+  })();
 })();
 </script>
 </body>

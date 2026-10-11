@@ -328,3 +328,77 @@ test('Mehrere Runden bis Spielziel laufen durch', () => {
   }
   assert.ok(s.players[s.gameWinner].score >= 200);
 });
+
+// ---------- Online-Sicht ----------
+test('Sicht: fremde Hände und Nachziehstapel bleiben verborgen', () => {
+  const s = mk(4, { rng: mulberry32(11) });
+  for (let seat = 0; seat < 4; seat++) {
+    const v = JSON.parse(JSON.stringify(E.makeView(s, seat)));
+    v.players.forEach((p, i) => {
+      if (i === seat) assert.equal(p.hand.length, s.players[i].hand.length);
+      else assert.equal(p.hand, null);
+      assert.equal(p.count, s.players[i].hand.length);
+    });
+    const text = JSON.stringify(v);
+    assert.ok(!('draw' in v), 'Nachziehstapel darf nicht übertragen werden');
+    // keine Karten-ID eines fremden Spielers im Datenstrom (außer Ablagestapel)
+    const visible = new Set([...v.players[seat].hand.map(c => c.id), ...v.discard.map(c => c.id)]);
+    s.players.forEach((p, i) => { if (i !== seat) p.hand.forEach(c => { if (!visible.has(c.id)) assert.ok(!text.includes('"id":' + c.id + ','), `Karte ${c.id} von Spieler ${i} geleakt`); }); });
+    assert.ok(v.uno.every((u, i) => i === seat || u === false));
+  }
+});
+
+test('Sicht: Client sieht dieselben spielbaren Karten wie der Host (150 zufällige Zwischenstände)', () => {
+  let checked = 0;
+  for (let seed = 1; seed <= 150; seed++) {
+    const rng = mulberry32(seed * 31);
+    const n = 2 + (seed % 3);
+    const s = mk(n, { stack: seed % 2 === 0, rng });
+    let steps = 0;
+    while (s.phase !== 'over' && steps++ < 400) {
+      for (let seat = 0; seat < n; seat++) {
+        const c = E.stateFromView(JSON.parse(JSON.stringify(E.makeView(s, seat))));
+        assert.ok(c, 'Sicht ungültig');
+        assert.equal(c.cur, s.cur);
+        assert.deepEqual(E.legalIds(c, seat), E.legalIds(s, seat));
+        assert.equal(E.topCard(c).id, E.topCard(s).id);
+        c.players.forEach((p, i) => assert.equal(p.hand.length, s.players[i].hand.length));
+        checked++;
+      }
+      const p = s.cur, ch = E.botChoose(s, p, rng);
+      if (ch.action === 'play') { if (s.players[p].hand.length === 2) E.callUno(s, p); E.play(s, p, ch.id, ch.color, rng); }
+      else if (ch.action === 'draw') E.draw(s, p, rng); else E.pass(s, p);
+    }
+    // am Rundenende sind alle Hände sichtbar
+    const end = E.stateFromView(JSON.parse(JSON.stringify(E.makeView(s, 0))));
+    end.players.forEach((p, i) => assert.deepEqual(p.hand.map(c => c.id).sort(), s.players[i].hand.map(c => c.id).sort()));
+    assert.equal(end.winner, s.winner);
+  }
+  assert.ok(checked > 1000);
+});
+
+test('Sicht: manipulierte Daten werden abgelehnt', () => {
+  const s = mk(3, { rng: mulberry32(3) });
+  const good = () => JSON.parse(JSON.stringify(E.makeView(s, 1)));
+  assert.ok(E.stateFromView(good()));
+  const bad = [
+    (v) => { v.discard[0].v = '<img src=x onerror=alert(1)>'; },
+    (v) => { v.discard[0].c = 'x'; },
+    (v) => { v.discard = []; },
+    (v) => { v.players[1].hand[0].v = 'W'; },       // wild mit Farbe
+    (v) => { v.players[0].count = 1e9; },
+    (v) => { v.players.push(v.players[0], v.players[0]); },
+    (v) => { v.players = [v.players[0]]; },
+    (v) => { v.cur = 7; },
+    (v) => { v.seat = -1; },
+    (v) => { v.dir = 5; },
+    (v) => { v.color = 'w'; },
+    (v) => { v.phase = 'hacked'; },
+    (v) => { v.winner = 9; },
+    (v) => { v.drawCount = -1; }
+  ];
+  bad.forEach((f, i) => { const v = good(); f(v); assert.equal(E.stateFromView(v), null, 'Fall ' + i); });
+  for (const junk of [null, undefined, 5, 'x', [], {}]) assert.equal(E.stateFromView(junk), null);
+  const v = good(); v.players[0].name = 'A'.repeat(500) + '\u0007x';
+  assert.ok(E.stateFromView(v).players[0].name.length <= 14);
+});

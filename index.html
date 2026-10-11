@@ -269,6 +269,8 @@ table.score tr.win td:first-child{font-weight:800}
   <div class="panel">
     <h2 id="cover-title"></h2>
     <p>Die Karten bleiben verdeckt, bis du tippst.</p>
+    <p class="muted" id="cover-unohint" hidden></p>
+    <button class="unobtn" type="button" id="cover-uno" hidden style="align-self:flex-start">Uno!</button>
     <button class="btn" type="button" id="cover-go">Karten anzeigen</button>
   </div>
 </div>
@@ -311,7 +313,7 @@ table.score tr.win td:first-child{font-weight:800}
       <li>Passt nichts, ziehst du eine Karte. Passt diese, darfst du sie sofort spielen, sonst passt du.</li>
       <li>Aussetzen: Der nächste Spieler setzt aus. Richtungswechsel: Die Reihenfolge dreht sich, bei 2 Spielern wirkt sie wie Aussetzen.</li>
       <li>+2: Der nächste Spieler zieht 2 Karten und setzt aus. Farbwahl passt immer. +4 Farbwahl darfst du nur legen, wenn du keine Karte der aktuellen Farbe hast.</li>
-      <li>Hast du zwei Karten und spielst eine aus, tippe vorher auf Uno!. Sonst ziehst du 2 Strafkarten.</li>
+      <li>Hast du nur noch eine Karte, tippe auf Uno!. Vergisst du es, ziehst du 2 Strafkarten, sobald der Nächste zieht oder spielt. Du kannst auch schon mit zwei Karten tippen.</li>
       <li>Wer zuerst keine Karten mehr hat, gewinnt die Runde und bekommt die Punkte der Restkarten: Zahlen zählen ihren Wert, Aktionskarten 20, Farbwahl und +4 je 50.</li>
       <li>Mehrere Menschen an einem Gerät: Vor jedem Zug erscheint ein Sichtschutz. Gerät weiterreichen, dann tippen.</li>
     </ul>
@@ -402,6 +404,20 @@ const Engine = (function () {
     return got;
   }
 
+  // Wer nur noch eine Karte hat und nicht "Uno" gesagt hat, zieht 2 Strafkarten,
+  // sobald ein anderer Spieler seinen nächsten Zug macht (spielen, ziehen oder passen).
+  function settleUno(state, actor, events, rng) {
+    const d = state.unoDue;
+    if (d === null || d === undefined) return;
+    state.unoDue = null;
+    if (d === actor) return;
+    const q = state.players[d];
+    if (q.hand.length === 1 && !state.uno[d]) {
+      drawN(state, d, 2, rng);
+      say(state, events, q.name + ' hat Uno vergessen und zieht 2 Karten.');
+    }
+  }
+
   function canPlay(state, p, card) {
     if (state.phase === 'over') return false;
     if (state.phase === 'drawn' && card.id !== state.drawnId) return false;
@@ -440,6 +456,7 @@ const Engine = (function () {
     state.roundPoints = 0;
     state.gameWinner = null;
     state.uno = state.players.map(() => false);
+    state.unoDue = null;
     state.log = [];
     for (const p of state.players) p.hand = [];
     for (let k = 0; k < 7; k++) for (const p of state.players) p.hand.push(state.draw.pop());
@@ -498,6 +515,7 @@ const Engine = (function () {
     if (card.c === 'w' && COLORS.indexOf(chosen) < 0) return { ok: false, reason: 'Wähle eine Farbe.', needColor: true };
 
     const events = [];
+    settleUno(state, p, events, rng);
     const called = state.uno[p];
     const nxt = nextIdx(state, 1);
     pl.hand.splice(idx, 1);
@@ -563,10 +581,7 @@ const Engine = (function () {
     }
     if (pl.hand.length === 1) {
       if (called) say(state, events, pl.name + ': Uno!');
-      else {
-        drawN(state, p, 2, rng);
-        say(state, events, pl.name + ' hat Uno vergessen und zieht 2 Karten.');
-      }
+      else { state.unoDue = p; say(state, events, pl.name + ' hat nur noch eine Karte.'); }
     }
     return { ok: true, events };
   }
@@ -574,6 +589,7 @@ const Engine = (function () {
   function draw(state, p, rng) {
     if (state.phase !== 'turn' || state.cur !== p) return { ok: false };
     const events = [];
+    settleUno(state, p, events, rng);
     const pl = state.players[p];
     if (state.pending > 0) {
       const k = state.pending;
@@ -602,9 +618,10 @@ const Engine = (function () {
     return { ok: true, events, drawn: card };
   }
 
-  function pass(state, p) {
+  function pass(state, p, rng) {
     if (state.phase !== 'drawn' || state.cur !== p) return { ok: false };
     const events = [];
+    settleUno(state, p, events, rng);
     say(state, events, state.players[p].name + ' passt.');
     state.phase = 'turn';
     state.drawnId = null;
@@ -612,12 +629,14 @@ const Engine = (function () {
     return { ok: true, events };
   }
 
+  // Uno darf jederzeit gesagt werden, solange man höchstens 2 Karten hat
+  // (mit 2 Karten vorher, mit 1 Karte nach dem Ausspielen).
   function callUno(state, p) {
-    if (state.phase !== 'over' && state.cur === p && state.players[p].hand.length === 2) {
-      state.uno[p] = true;
-      return true;
-    }
-    return false;
+    const n = state.players[p].hand.length;
+    if (state.phase === 'over' || n < 1 || n > 2) return false;
+    state.uno[p] = true;
+    if (state.unoDue === p) state.unoDue = null;
+    return true;
   }
 
   function botChoose(state, p, rng) {
@@ -1051,9 +1070,9 @@ if (typeof module !== 'undefined' && module.exports) module.exports = GameLog;
         (active ? '' : ' tabindex="-1"') + '>' + cardInner(c) + '</button>';
     }).join('');
     name.innerHTML = esc(P.name) + '<small>' + P.hand.length + ' Karten' + (S.cfg.target > 0 ? ', ' + P.score + ' Punkte' : '') + '</small>';
-    unoBtn.hidden = !(active && P.hand.length === 2);
+    unoBtn.hidden = S.phase === 'over' || P.hand.length === 0;
     unoBtn.setAttribute('aria-pressed', S.uno[own] ? 'true' : 'false');
-    unoBtn.classList.toggle('pulse', !S.uno[own]);
+    unoBtn.classList.toggle('pulse', P.hand.length === 1 && !S.uno[own]);
     passBtn.hidden = !(active && S.phase === 'drawn');
     layoutHand();
   }
@@ -1099,11 +1118,18 @@ if (typeof module !== 'undefined' && module.exports) module.exports = GameLog;
     const pl = S.players[p];
     if (!pl.human) {
       botPendingGen = gen;
-      schedule(botTurn, S.phase === 'drawn' ? 700 : 1050);
+      const due = S.unoDue;
+      const unoWait = due !== null && due !== undefined && S.players[due].human && !S.uno[due] ? 1500 : 0;
+      schedule(botTurn, (S.phase === 'drawn' ? 700 : 1050) + unoWait);
       return;
     }
     if (!onlineGame() && humans().length > 1 && viewer !== p) {
       $('#cover-title').textContent = 'Gerät an ' + pl.name + ' geben';
+      const due = S.unoDue;
+      const needUno = due !== null && due !== undefined && due !== p && S.players[due].human && !S.uno[due] && S.players[due].hand.length === 1;
+      $('#cover-uno').hidden = !needUno;
+      $('#cover-unohint').hidden = !needUno;
+      if (needUno) $('#cover-unohint').textContent = S.players[due].name + ' hat nur noch eine Karte. Jetzt Uno sagen, bevor das Gerät weitergegeben wird.';
       const o = show('#ov-cover');
       focusFirst(o);
     }
@@ -1222,13 +1248,22 @@ if (typeof module !== 'undefined' && module.exports) module.exports = GameLog;
   $('#btn-uno').addEventListener('click', () => {
     const own = owner();
     if (own === null) return;
+    if (S.phase === 'over') return;
+    if (S.players[own].hand.length > 2) { flash('Uno sagst du, wenn du nur noch eine Karte hast.'); return; }
     if (net && net.role === 'client') {
-      if (own === S.cur && S.players[own].hand.length === 2) { S.uno[own] = true; render(); netSend(net.hostConn, { t: 'act', a: 'uno' }); }
+      S.uno[own] = true; render(); netSend(net.hostConn, { t: 'act', a: 'uno' });
       return;
     }
-    if (Engine.callUno(S, own)) { render(); broadcastViews(); }
+    if (Engine.callUno(S, own)) { log('Eigene Aktion: uno'); render(); broadcastViews(); }
   });
 
+  $('#cover-uno').addEventListener('click', () => {
+    if (S && S.unoDue !== null && S.unoDue !== undefined && Engine.callUno(S, S.unoDue)) {
+      log('Eigene Aktion: uno (Sichtschutz)');
+      $('#cover-uno').hidden = true;
+      $('#cover-unohint').hidden = true;
+    }
+  });
   $('#cover-go').addEventListener('click', () => {
     viewer = S.cur;
     hide('#ov-cover');

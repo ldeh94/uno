@@ -161,20 +161,100 @@ test('Ziehen: passende Karte darf sofort gespielt werden, sonst Zug vorbei', () 
   assert.equal(s.cur, 0);
 });
 
-test('Uno vergessen: 2 Strafkarten; Uno gerufen: keine', () => {
-  const a = setup(2, { hands: [[['r', '1'], ['r', '2']], [['b', '1']]], top: ['r', '3'] });
-  E.play(a, 0, a.players[0].hand[0].id, null, mulberry32(1));
-  assert.equal(a.players[0].hand.length, 3);
+const R = (n) => mulberry32(n);
+const fourCards = [['r', '1'], ['r', '2'], ['r', '4']];
 
-  const b = setup(2, { hands: [[['r', '1'], ['r', '2']], [['b', '1']]], top: ['r', '3'] });
-  assert.ok(E.callUno(b, 0));
-  E.play(b, 0, b.players[0].hand[0].id, null, mulberry32(1));
-  assert.equal(b.players[0].hand.length, 1);
+test('Uno: mit einer Restkarte sofort nach dem Ausspielen gibt es noch keine Strafe', () => {
+  const s = setup(3, { hands: [[['r', '1'], ['r', '2']], [['b', '1'], ['b', '3']], [['b', '4']]], top: ['r', '3'] });
+  E.play(s, 0, s.players[0].hand[0].id, null, R(1));
+  assert.equal(s.players[0].hand.length, 1);
+  assert.equal(s.unoDue, 0);
+  assert.equal(s.cur, 1);
 });
 
-test('Uno kann nur mit genau 2 Karten gerufen werden', () => {
-  const s = setup(2, { hands: [[['r', '1'], ['r', '2'], ['r', '4']], [['b', '1']]], top: ['r', '3'] });
-  assert.equal(E.callUno(s, 0), false);
+test('Uno vergessen: Strafe von 2 Karten, sobald der nächste Spieler seinen Zug macht', () => {
+  for (const act of ['play', 'draw']) {
+    const s = setup(3, { hands: [[['r', '1'], ['r', '2']], [['r', '9'], ['b', '3'], ['b', '5']], [['b', '4']]], top: ['r', '3'] });
+    E.play(s, 0, s.players[0].hand[0].id, null, R(1));
+    if (act === 'play') E.play(s, 1, s.players[1].hand[0].id, null, R(1));
+    else E.draw(s, 1, R(1));
+    assert.equal(s.players[0].hand.length, 3, act);
+    assert.equal(s.unoDue, null);
+  }
+});
+
+test('Uno nach dem Ausspielen gerufen: keine Strafe', () => {
+  const s = setup(3, { hands: [[['r', '1'], ['r', '2']], [['r', '9'], ['b', '3']], [['b', '4']]], top: ['r', '3'] });
+  E.play(s, 0, s.players[0].hand[0].id, null, R(1));
+  assert.ok(E.callUno(s, 0), 'mit einer Karte rufbar, auch wenn man nicht am Zug ist');
+  assert.equal(s.unoDue, null);
+  E.play(s, 1, s.players[1].hand[0].id, null, R(1));
+  assert.equal(s.players[0].hand.length, 1);
+});
+
+test('Uno vorher mit zwei Karten gerufen: keine Strafe', () => {
+  const s = setup(3, { hands: [[['r', '1'], ['r', '2']], [['r', '9'], ['b', '3']], [['b', '4']]], top: ['r', '3'] });
+  assert.ok(E.callUno(s, 0));
+  E.play(s, 0, s.players[0].hand[0].id, null, R(1));
+  assert.equal(s.unoDue, null);
+  E.draw(s, 1, R(1));
+  assert.equal(s.players[0].hand.length, 1);
+});
+
+test('Uno-Ruf geht jederzeit mit höchstens 2 Karten, nicht mit mehr', () => {
+  const s = setup(2, { hands: [fourCards, [['b', '1']]], top: ['r', '3'] });
+  assert.equal(E.callUno(s, 0), false, '3 Karten');
+  s.players[0].hand.pop();
+  assert.equal(E.callUno(s, 0), true, '2 Karten');
+  assert.equal(E.callUno(s, 1), true, '1 Karte, auch wenn man nicht dran ist');
+  s.players[1].hand = [];
+  assert.equal(E.callUno(s, 1), false, '0 Karten');
+  s.phase = 'over';
+  assert.equal(E.callUno(s, 0), false, 'nach Rundenende');
+});
+
+test('Uno-Ruf verfällt, wenn man danach wieder Karten bekommt', () => {
+  const s = setup(2, { hands: [[['g', '1'], ['g', '2']], [['r', 'D'], ['b', '1']]], top: ['r', '3'], draw: [['b', '2'], ['b', '3'], ['b', '4']] });
+  assert.ok(E.callUno(s, 0));
+  s.cur = 1;
+  E.play(s, 1, s.players[1].hand[0].id, null, R(1)); // +2 für Spieler 0
+  assert.equal(s.players[0].hand.length, 4);
+  assert.equal(s.uno[0], false);
+});
+
+test('Uno: Spieler mit Aussetzen kommt selbst wieder dran, dann keine Strafe von sich selbst', () => {
+  const s = setup(2, { hands: [[['r', 'S'], ['r', '2']], [['b', '1'], ['b', '2']]], top: ['r', '3'] });
+  E.play(s, 0, s.players[0].hand[0].id, null, R(1)); // Gegner setzt aus, Spieler 0 wieder dran
+  assert.equal(s.cur, 0);
+  assert.equal(s.unoDue, 0);
+  E.draw(s, 0, R(1));
+  assert.equal(s.unoDue, null);
+  assert.equal(s.players[0].hand.length, 2, 'nur die gezogene Karte, keine Strafe');
+});
+
+test('Uno: Strafe auch, wenn der nächste Spieler passt', () => {
+  const s = setup(2, { hands: [[['r', '1']], [['b', '1'], ['b', '2']]], top: ['r', '3'] });
+  // Spieler 0 hat nur eine Karte und nicht gerufen; Spieler 1 hat gezogen und passt jetzt
+  s.unoDue = 0; s.cur = 1; s.phase = 'drawn'; s.drawnId = s.players[1].hand[0].id;
+  assert.ok(E.pass(s, 1, R(1)).ok);
+  assert.equal(s.players[0].hand.length, 3);
+  assert.equal(s.unoDue, null);
+});
+
+test('Uno: Strafkarten kommen vor dem eigenen Ziehen des Nächsten vom Stapel', () => {
+  const s = setup(2, { hands: [[['r', '1'], ['r', '2']], [['b', '1']]], top: ['r', '3'], draw: [['b', '5'], ['b', '6'], ['b', '7'], ['r', '8']] });
+  E.play(s, 0, s.players[0].hand[0].id, null, R(1));
+  E.draw(s, 1, R(1));
+  assert.equal(s.players[0].hand.length, 3);
+  assert.equal(s.players[1].hand.length, 2);
+});
+
+test('Uno: neue Runde setzt den offenen Uno-Zustand zurück', () => {
+  const s = setup(2, { hands: [[['r', '1'], ['r', '2']], [['b', '1']]], top: ['r', '3'] });
+  E.play(s, 0, s.players[0].hand[0].id, null, R(1));
+  assert.equal(s.unoDue, 0);
+  E.nextRound(s, R(2));
+  assert.equal(s.unoDue, null);
 });
 
 test('Rundenende: Sieger bekommt Punkte der Restkarten', () => {

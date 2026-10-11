@@ -1394,8 +1394,43 @@ if (typeof module !== 'undefined' && module.exports) module.exports = GameLog;
     });
   }
 
+  // Direktverbindungen scheitern oft an Firewalls und Mobilfunknetzen. Dann hilft ein Relay (TURN).
+  // Die Relay-Server sind öffentliche, kostenlose Angebote ohne Garantie. Eigene Server: localStorage 'uno-ice' (JSON-Liste).
+  const ICE_SERVERS = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:global.stun.twilio.com:3478' },
+    { urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478'], username: 'peerjs', credential: 'peerjsp' },
+    { urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443', 'turns:openrelay.metered.ca:443?transport=tcp'], username: 'openrelayproject', credential: 'openrelayproject' }
+  ];
+  function iceServers() {
+    try {
+      const custom = JSON.parse(localStorage.getItem('uno-ice') || 'null');
+      if (Array.isArray(custom) && custom.length) return custom;
+    } catch (e) { /* Standard verwenden */ }
+    return ICE_SERVERS;
+  }
+
+  // Schreibt den Verbindungsaufbau ins Protokoll, damit man sieht, woran es scheitert
+  function watchIce(conn, tag) {
+    setTimeout(() => {
+      try {
+        const pc = conn && conn.peerConnection;
+        if (!pc || !pc.addEventListener) return;
+        const seen = {};
+        pc.addEventListener('iceconnectionstatechange', () => log(tag + ': ICE ' + pc.iceConnectionState));
+        pc.addEventListener('connectionstatechange', () => log(tag + ': Verbindung ' + pc.connectionState));
+        pc.addEventListener('icecandidate', (e) => {
+          if (e.candidate) { const t = e.candidate.type || (/ typ (\w+)/.exec(e.candidate.candidate || '') || [])[1] || '?'; seen[t] = (seen[t] || 0) + 1; }
+          else log(tag + ': Kandidaten gesammelt ' + JSON.stringify(seen) + (seen.relay ? '' : ' (kein Relay erreichbar)'));
+        });
+        pc.addEventListener('icecandidateerror', (e) => log(tag + ': ICE-Fehler ' + e.errorCode + ' ' + String(e.url || '').slice(0, 50) + ' ' + String(e.errorText || '').slice(0, 60)));
+      } catch (e) { /* nur Diagnose */ }
+    }, 0);
+  }
+
   function peerOptions() {
-    const opts = { debug: 0 };
+    const opts = { debug: 0, config: { iceServers: iceServers(), sdpSemantics: 'unified-plan' } };
     // Eigener Vermittlungsserver: ?broker=host:port (nur für Selbsthoster und Tests)
     const b = new URLSearchParams(location.search).get('broker');
     if (b && /^[\w.-]+:\d{2,5}$/.test(b)) {
@@ -1459,7 +1494,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = GameLog;
       netError(errText(err));
     });
     peer.on('disconnected', () => { if (net === my && !my.closing) { log('Host: Vermittlungsserver getrennt, verbinde neu'); try { peer.reconnect(); } catch (e) { /* egal */ } } });
-    peer.on('connection', (conn) => onHostConn(my, conn));
+    peer.on('connection', (conn) => { watchIce(conn, 'Host'); onHostConn(my, conn); });
   }
 
   function onHostConn(my, conn) {
@@ -1596,7 +1631,8 @@ if (typeof module !== 'undefined' && module.exports) module.exports = GameLog;
       if (net !== my || my.peer !== peer) return;
       const conn = peer.connect(ROOM_PREFIX + my.code, { reliable: true, serialization: 'json' });
       my.hostConn = conn;
-      const timer = setTimeout(() => { if (net === my && my.hostConn === conn && my.phase === 'connecting') netError('Der Host antwortet nicht. Kommt ihr eventuell nicht direkt miteinander ins Netz (Firmen- oder Mobilfunknetz)?'); }, 20000);
+      watchIce(conn, 'Client');
+      const timer = setTimeout(() => { if (net === my && my.hostConn === conn && my.phase === 'connecting') netError('Keine Direktverbindung zum Host. Ist die Host-Seite noch offen? Mögliche Ursachen: Geräte in verschiedenen Netzen (z. B. Mobilfunk), Firmen- oder Gäste-WLAN, blockierte Direktverbindungen. Versuch es im selben privaten WLAN. Das Protokoll (Regeln) enthält Details.'); }, 25000);
       conn.on('open', () => { clearTimeout(timer); log('Client: Verbindung zum Host offen'); if (net === my && my.hostConn === conn) netSend(conn, { t: 'hello', name: my.name }); });
       conn.on('data', (m) => { if (my.hostConn === conn) onClientMsg(my, m); });
       const gone = () => { clearTimeout(timer); if (net === my && my.hostConn === conn) onClientClosed(my); };

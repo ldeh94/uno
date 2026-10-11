@@ -4,7 +4,7 @@ Uno-Kartenspiel als Web-App für 2 bis 4 Spieler, lokal und online. Eine einzige
 
 - **Lokal:** Jeder Platz ist wahlweise Mensch oder Bot. Solo gegen Bots, zu zweit am selben Gerät (mit Sichtschutz) oder gemischt.
 - **Online:** Einer erstellt einen Raum, die anderen treten mit 5-stelligem Code oder Einladungslink bei. Freie Plätze füllt der Host mit Bots.
-- Alle 108 Karten, Aussetzen, Richtungswechsel, +2, Farbwahl, +4 (nur wenn keine Karte der aktuellen Farbe auf der Hand ist), Der Uno-Button ist immer tippbar. Gesagt wird Uno, wenn nur noch eine Karte auf der Hand ist (auch schon vorher mit zwei Karten möglich). Vergessen kostet 2 Strafkarten, sobald der Nächste zieht oder spielt.
+- Alle 108 Karten, Aussetzen, Richtungswechsel, +2, Farbwahl, +4 (nur wenn keine Karte der aktuellen Farbe auf der Hand ist). Der Uno-Button ist immer tippbar. Gesagt wird Uno, wenn nur noch eine Karte auf der Hand ist (auch schon vorher mit zwei Karten möglich). Vergessen kostet 2 Strafkarten, sobald der Nächste zieht oder spielt.
 - Spielziel: eine Runde, 200 oder 500 Punkte. Optional: Strafkarten stapeln.
 - Läuft auf Handy und Desktop.
 
